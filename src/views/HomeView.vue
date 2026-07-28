@@ -1,13 +1,19 @@
 <script setup>
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { useWalletConnect } from '@/composables/use-wallet-connect'
 import { useAuthStore } from '@/stores/auth'
 
+const router = useRouter()
 const auth = useAuthStore()
 const { connect } = useWalletConnect()
 const errorMessage = ref('')
 const loading = ref(false)
+
+function goDashboard() {
+  router.push({ name: 'projects' })
+}
 
 async function onConnect() {
   errorMessage.value = ''
@@ -47,7 +53,15 @@ async function onConnect() {
         Homepage content placeholder. Connect your wallet to open the dashboard.
       </p>
 
-      <Button size="lg" :disabled="loading || auth.isAuthenticating" @click="onConnect">
+      <Button v-if="auth.isAuthenticated" size="lg" @click="goDashboard">
+        Dashboard
+      </Button>
+      <Button
+        v-else
+        size="lg"
+        :disabled="loading || auth.isAuthenticating"
+        @click="onConnect"
+      >
         {{ loading || auth.isAuthenticating ? 'Connecting…' : 'Connect Wallet' }}
       </Button>
 

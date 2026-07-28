@@ -4,6 +4,7 @@ import { useWalletStore } from '@/stores/wallet'
 import HomeView from '@/views/HomeView.vue'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
 import ProjectListView from '@/views/ProjectListView.vue'
+import ProjectDetailView from '@/views/ProjectDetailView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -23,6 +24,11 @@ const router = createRouter({
           path: 'projects',
           name: 'projects',
           component: ProjectListView
+        },
+        {
+          path: 'projects/:id',
+          name: 'project-detail',
+          component: ProjectDetailView
         }
       ]
     }

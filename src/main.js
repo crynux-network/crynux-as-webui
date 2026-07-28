@@ -11,6 +11,7 @@ import { useWalletStore } from '@/stores/wallet'
 import { initAppKit, wagmiConfig } from '@/lib/appkit'
 
 import '@/assets/index.css'
+import 'vue-sonner/style.css'
 
 initAppKit()
 

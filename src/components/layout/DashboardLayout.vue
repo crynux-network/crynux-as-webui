@@ -1,13 +1,19 @@
 <script setup>
-import { RouterLink, RouterView, useRouter } from 'vue-router'
+import { computed } from 'vue'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { FolderKanban, LogOut } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth'
 import { useWalletStore } from '@/stores/wallet'
 
+const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const wallet = useWalletStore()
+
+const projectsNavActive = computed(
+  () => route.name === 'projects' || route.name === 'project-detail',
+)
 
 async function signOut() {
   await wallet.disconnectWallet()
@@ -29,8 +35,12 @@ async function signOut() {
       <nav class="flex-1 overflow-hidden px-2 py-3">
         <RouterLink
           :to="{ name: 'projects' }"
-          class="flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-          active-class="bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+          class="flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-sidebar-primary hover:text-sidebar-primary-foreground"
+          :class="
+            projectsNavActive
+              ? 'bg-sidebar-primary font-medium text-sidebar-primary-foreground'
+              : ''
+          "
         >
           <FolderKanban class="size-4" />
           Projects
@@ -49,7 +59,9 @@ async function signOut() {
     </aside>
 
     <main class="min-h-0 min-w-0 flex-1 overflow-y-auto">
-      <RouterView />
+      <div class="h-full w-full px-6 py-8">
+        <RouterView />
+      </div>
     </main>
   </div>
 </template>

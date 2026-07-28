@@ -72,5 +72,7 @@ export const useAuthStore = defineStore('auth', {
       }
     }
   },
-  persist: true
+  persist: {
+    pick: ['sessionToken', 'sessionExpiresAt', 'sessionAddress']
+  }
 })

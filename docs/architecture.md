@@ -12,7 +12,8 @@ Crynux AS WebUI is a Vue 3 application that interacts with:
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Vue Components                            │
-│  HomeView │ DashboardLayout │ ProjectListView │ ui/*            │
+│  HomeView │ DashboardLayout │ ProjectListView │                 │
+│  ProjectDetailView │ projects/* │ ui/*                          │
 ├─────────────────────────────────────────────────────────────────┤
 │     Stores (Pinia)      │         Composables                   │
 │  ┌─────────┐ ┌────────┐ │  ┌──────────────────────────────┐     │
@@ -23,8 +24,9 @@ Crynux AS WebUI is a Vue 3 application that interacts with:
 │                         API Layer                                │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │  v1 (Crynux AS API)                                      │   │
-│  │  - v1.js   Axios client + Bearer interceptor             │   │
-│  │  - auth.js POST /auth/login                              │   │
+│  │  - v1.js       Axios client + Bearer interceptor         │   │
+│  │  - auth.js     POST /auth/login                          │   │
+│  │  - projects.js Project CRUD + API key reset              │   │
 │  └──────────────────────────────────────────────────────────┘   │
 ├─────────────────────────────────────────────────────────────────┤
 │                      External Services                           │
@@ -46,15 +48,22 @@ src/
 │   ├── base-api.js            # Shared API base
 │   └── v1/
 │       ├── v1.js              # Axios client with auth interceptor
-│       └── auth.js            # Wallet login API
+│       ├── auth.js            # Wallet login API
+│       ├── projects.js        # Project CRUD + API key reset
+│       └── llm.js             # LLM billing config (VRAM tiers)
 ├── components/
 │   ├── layout/
 │   │   └── DashboardLayout.vue  # Fixed left sidebar + scrollable main
+│   ├── projects/              # Project dialogs (create, reveal key, reset, delete, rename)
 │   └── ui/                    # shadcn-vue generated components
 ├── composables/
 │   └── use-wallet-connect.js  # Connect modal → auth → optional redirect
 ├── lib/
 │   ├── appkit.js              # Reown AppKit + WagmiAdapter init
+│   ├── llm-billing.js         # Credits estimate helpers for UI examples
+│   ├── project-url.js         # Private LLM base URL builder
+│   ├── project-ui.js          # Project display and error helpers
+│   ├── token-ratio.js         # Allowed cost-level (token_ratio) options
 │   └── utils.js               # shadcn cn() helper
 ├── router/
 │   └── index.js               # Routes and auth guard
@@ -63,7 +72,8 @@ src/
 │   └── wallet.js              # Wallet address synced from wagmi
 ├── views/
 │   ├── HomeView.vue           # Public home + Connect
-│   └── ProjectListView.vue    # Dashboard project list
+│   ├── ProjectListView.vue    # Dashboard project list + create
+│   └── ProjectDetailView.vue  # Project detail, edit, reset key, delete
 ├── assets/
 │   └── index.css              # Tailwind + theme CSS variables
 ├── config.json                # as_url and other app config
@@ -93,6 +103,7 @@ src/
 
 - `/` is a full-screen public page with no dashboard sidebar.
 - `/dashboard/*` uses `DashboardLayout.vue`: fixed-width left sidebar (no vertical scroll) and a right main area that scrolls independently (`h-screen` flex; main uses `flex-1 min-h-0 overflow-y-auto`).
+- Dashboard page content MUST fill the full width of the right main area. `DashboardLayout` wraps `RouterView` in a full-width container with shared horizontal and vertical padding (`px-6 py-8`). Dashboard views MUST NOT center themselves with `mx-auto` or constrain the page to a max-width column.
 
 ### Routes
 
@@ -101,8 +112,16 @@ src/
 | `/` | `home` | No | `HomeView` |
 | `/dashboard` | — | Yes | redirects to `projects` |
 | `/dashboard/projects` | `projects` | Yes | `ProjectListView` |
+| `/dashboard/projects/:id` | `project-detail` | Yes | `ProjectDetailView` |
 
 `router.beforeEach` checks `meta.requiresAuth`. If the route requires auth and `auth.isAuthenticated` is false, the guard clears session/wallet display state and redirects to `/`.
+
+### Project management views
+
+- `ProjectListView` loads `GET /v1/projects`, creates projects via `POST /v1/projects`, and opens `ApiKeyRevealDialog` when the create response includes a one-time plaintext `api_key`.
+- `ProjectDetailView` presents two primary sections: a muted LLM API panel (base URL, API key prefix, reset key; rename/delete via overflow menu) and a Cost and speed panel. The cost panel uses a cost-level slider (API field `token_ratio`) that saves after 3 seconds without further changes via `PUT /v1/projects/:id`, explains Credits charging from input/output tokens and VRAM tier, and shows a Credits-per-1M-tokens pricing table by VRAM tier using `GET /v1/llm/vram_ratios`. Cost-level save feedback uses a single replaceable toast. The page leaves space below for future usage stats charts.
+- Project data is page state loaded through `projectsAPI`. There is no Pinia project store.
+- Plaintext API keys MUST NOT be persisted in local storage or route state after the reveal dialog closes.
 
 ---
 
@@ -219,8 +238,15 @@ optional router.push(redirect)   e.g. { name: 'projects' }
 | API module | Method | Path | Auth |
 |------------|--------|------|------|
 | `auth.js` | `login` | `POST /auth/login` | No |
+| `projects.js` | `list` | `GET /projects` | Yes |
+| `projects.js` | `create` | `POST /projects` | Yes |
+| `projects.js` | `get` | `GET /projects/:id` | Yes |
+| `projects.js` | `update` | `PUT /projects/:id` | Yes |
+| `projects.js` | `remove` | `DELETE /projects/:id` | Yes |
+| `projects.js` | `resetApiKey` | `POST /projects/:id/api_key/reset` | Yes |
+| `llm.js` | `getVramRatios` | `GET /llm/vram_ratios` | Yes |
 
-Further project and account APIs MUST follow the same `V1Client` + module class pattern.
+Further account APIs MUST follow the same `V1Client` + module class pattern.
 
 ### Configuration
 
@@ -245,6 +271,8 @@ Further project and account APIs MUST follow the same `V1Client` + module class 
 
 - API failures map to `ApiError` types in `api/api-error.js`.
 - Connect/auth failures return `{ success: false, reason }` from `useWalletConnect` / `authenticate`; `HomeView` shows user-facing messages for known reasons.
+- Project list/detail and project dialogs map `ApiError` to user-facing messages via `lib/project-ui.js` (`projectErrorMessage`) and offer retry where loading failed.
+- Transient success and failure feedback (for example saving cost level) MUST use toast notifications via `vue-sonner` (`Toaster` in `App.vue`) instead of inline page text.
 - Unexpected API 500/unknown errors are logged via handlers registered in `main.js`.
 - Do not silently swallow errors. User-impacting failures MUST surface clear feedback; otherwise log structured context and propagate.
 
@@ -255,12 +283,20 @@ Further project and account APIs MUST follow the same `V1Client` + module class 
 | File | Purpose |
 |------|---------|
 | `lib/appkit.js` | Reown AppKit + wagmi config |
+| `lib/project-url.js` | Build private LLM base URL from `endpoint_token` |
+| `lib/token-ratio.js` | Allowed `token_ratio` display values |
 | `stores/wallet.js` | Wallet address sync and disconnect |
 | `stores/auth.js` | JWT session and `authenticate()` |
 | `composables/use-wallet-connect.js` | Connect + login + redirect |
 | `api/v1/v1.js` | Axios client and auth header |
 | `api/v1/auth.js` | Login API |
+| `api/v1/projects.js` | Project management API |
 | `router/index.js` | Routes and `requiresAuth` guard |
 | `components/layout/DashboardLayout.vue` | Dashboard shell |
+| `components/projects/*` | Create, API key reveal, reset, rename, and delete dialogs |
+| `components/ui/sonner` | Global toast notifications via `vue-sonner` |
+| `views/ProjectListView.vue` | Project list and create flow |
+| `views/ProjectDetailView.vue` | Project detail, edit, reset key, delete |
 | `config.json` | `as_url` |
 | `main.js` | App bootstrap, plugins, unauthorized handler |
+| `App.vue` | Root router outlet and toast `Toaster` |
