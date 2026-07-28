@@ -155,6 +155,8 @@ Session is persisted (`persist: true`).
 
 The Connect entry point (`useWalletConnect().connect`) always runs the full flow: open AppKit if needed, then `auth.authenticate()`. Components that gate dashboard access MUST use `auth.isAuthenticated`.
 
+If `authenticate()` returns `auth_failed` (including when the user cancels the signature prompt), `connect` MUST call `wallet.disconnectWallet()` so the next Connect opens AppKit from the wallet selection step instead of reusing the previous connection.
+
 If the wallet address changes and no longer matches `sessionAddress`, `wallet.syncFromWagmi()` clears the session.
 
 ---
@@ -188,6 +190,8 @@ useWalletConnect().connect(redirect?)
 auth.authenticate()
         │
         ├── signMessage(login message) via wagmi
+        ├── on auth_failed (incl. signature cancel):
+        │     wallet.disconnectWallet() → stop
         ├── authAPI.login({ address, timestamp, signature })
         │     POST /v1/auth/login
         ├── setSession(token, expires_at, address)

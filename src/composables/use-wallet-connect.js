@@ -56,6 +56,9 @@ export function useWalletConnect() {
 
       const result = await auth.authenticate()
       if (!result.success) {
+        if (result.reason === 'auth_failed') {
+          await wallet.disconnectWallet()
+        }
         return result
       }
 
