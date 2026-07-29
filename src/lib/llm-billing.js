@@ -1,10 +1,10 @@
-/** Matches Crynux AS llm.prompt/completion_credits_per_token defaults. */
+/** Fallback unit prices when GET /v1/llm/billing_config is unavailable. */
 export const DEFAULT_PROMPT_CREDITS_PER_TOKEN = 1
 export const DEFAULT_COMPLETION_CREDITS_PER_TOKEN = 1
 
 export const MILLION_TOKENS = 1_000_000
 
-/** Fallback tiers when GET /v1/llm/vram_ratios is unavailable. */
+/** Fallback tiers when GET /v1/llm/billing_config is unavailable. */
 export const DEFAULT_VRAM_TIERS = [
   { max_vram: 24, ratio: 0.5 },
   { max_vram: 96, ratio: 1.5 },
@@ -52,7 +52,14 @@ export function creditsPerMillionTokens({
   })
 }
 
-export function buildPricingRows(tiers, tokenRatio) {
+export function buildPricingRows(
+  tiers,
+  tokenRatio,
+  {
+    promptCreditsPerToken = DEFAULT_PROMPT_CREDITS_PER_TOKEN,
+    completionCreditsPerToken = DEFAULT_COMPLETION_CREDITS_PER_TOKEN,
+  } = {},
+) {
   const sorted = [...tiers].sort((a, b) => a.max_vram - b.max_vram)
   return sorted.map((tier, index) => {
     const prevMax = index > 0 ? sorted[index - 1].max_vram : 0
@@ -74,12 +81,12 @@ export function buildPricingRows(tiers, tokenRatio) {
       inputCredits: creditsPerMillionTokens({
         tokenRatio,
         vramRatio: tier.ratio,
-        creditsPerToken: DEFAULT_PROMPT_CREDITS_PER_TOKEN,
+        creditsPerToken: promptCreditsPerToken,
       }),
       outputCredits: creditsPerMillionTokens({
         tokenRatio,
         vramRatio: tier.ratio,
-        creditsPerToken: DEFAULT_COMPLETION_CREDITS_PER_TOKEN,
+        creditsPerToken: completionCreditsPerToken,
       }),
     }
   })

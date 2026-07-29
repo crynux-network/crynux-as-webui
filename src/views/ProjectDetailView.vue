@@ -30,6 +30,8 @@ import { llmAPI } from '@/api/v1/llm'
 import { projectsAPI } from '@/api/v1/projects'
 import { projectLlmBaseUrl } from '@/lib/project-url'
 import {
+  DEFAULT_COMPLETION_CREDITS_PER_TOKEN,
+  DEFAULT_PROMPT_CREDITS_PER_TOKEN,
   DEFAULT_VRAM_TIERS,
   buildPricingRows,
   formatCredits,
@@ -52,10 +54,11 @@ const router = useRouter()
 const project = ref(null)
 const loading = ref(false)
 const savingRatio = ref(false)
-const errorMessage = ref('')
 const sliderIndex = ref([tokenRatioToSliderIndex(1)])
 const savedTokenRatio = ref(1)
 const vramTiers = ref([...DEFAULT_VRAM_TIERS])
+const promptCreditsPerToken = ref(DEFAULT_PROMPT_CREDITS_PER_TOKEN)
+const completionCreditsPerToken = ref(DEFAULT_COMPLETION_CREDITS_PER_TOKEN)
 const urlCopied = ref(false)
 let urlCopiedTimer = null
 let ratioSaveTimer = null
@@ -85,7 +88,10 @@ const ratioDirty = computed(
     formatTokenRatio(savedTokenRatio.value),
 )
 const pricingRows = computed(() =>
-  buildPricingRows(vramTiers.value, currentTokenRatio.value),
+  buildPricingRows(vramTiers.value, currentTokenRatio.value, {
+    promptCreditsPerToken: promptCreditsPerToken.value,
+    completionCreditsPerToken: completionCreditsPerToken.value,
+  }),
 )
 
 watch(projectId, () => {
@@ -131,24 +137,33 @@ function setSliderFromRatio(tokenRatio) {
   syncingSlider = false
 }
 
-async function loadVramTiers() {
+async function loadBillingConfig() {
   try {
-    const data = await llmAPI.getVramRatios()
-    const tiers = Array.isArray(data) ? data : []
+    const data = await llmAPI.getBillingConfig()
+    const tiers = Array.isArray(data?.vram_ratios) ? data.vram_ratios : []
     if (tiers.length > 0) {
       vramTiers.value = tiers.map((tier) => ({
         max_vram: tier.max_vram,
         ratio: tier.ratio,
       }))
     }
+    const promptPrice = Number(data?.prompt_credits_per_token)
+    const completionPrice = Number(data?.completion_credits_per_token)
+    if (Number.isFinite(promptPrice) && promptPrice > 0) {
+      promptCreditsPerToken.value = promptPrice
+    }
+    if (Number.isFinite(completionPrice) && completionPrice > 0) {
+      completionCreditsPerToken.value = completionPrice
+    }
   } catch (e) {
-    console.error('Failed to load VRAM billing tiers', e)
+    console.error('Failed to load LLM billing config', e)
     vramTiers.value = [...DEFAULT_VRAM_TIERS]
+    promptCreditsPerToken.value = DEFAULT_PROMPT_CREDITS_PER_TOKEN
+    completionCreditsPerToken.value = DEFAULT_COMPLETION_CREDITS_PER_TOKEN
   }
 }
 
 async function loadProject() {
-  errorMessage.value = ''
   loading.value = true
   try {
     const data = await projectsAPI.get(projectId.value)
@@ -159,9 +174,8 @@ async function loadProject() {
       router.replace({ name: 'projects' })
       return
     }
-    errorMessage.value = projectErrorMessage(
-      e,
-      'Could not load project. Please try again.',
+    toast.error(
+      projectErrorMessage(e, 'Could not load project. Please try again later.'),
     )
   } finally {
     loading.value = false
@@ -225,7 +239,7 @@ async function saveCostLevel() {
     console.error('Failed to update cost setting', e)
     showCostLevelToast(
       'error',
-      projectErrorMessage(e, 'Could not save cost level. Please try again.'),
+      projectErrorMessage(e, 'Could not save cost level. Please try again later.'),
     )
     setSliderFromRatio(savedTokenRatio.value)
   } finally {
@@ -257,7 +271,7 @@ function onDeleted() {
 }
 
 onMounted(() => {
-  loadVramTiers()
+  loadBillingConfig()
   loadProject()
 })
 
@@ -287,10 +301,6 @@ onUnmounted(() => {
     </div>
 
     <template v-else-if="project">
-      <p v-if="errorMessage" class="mb-4 text-sm text-destructive">
-        {{ errorMessage }}
-      </p>
-
       <!-- 1. LLM API credentials -->
       <section class="mb-8 rounded-xl border border-border bg-muted/40 p-5">
         <div class="mb-5 flex items-start justify-between gap-3">
@@ -463,17 +473,6 @@ onUnmounted(() => {
         </div>
       </section>
     </template>
-
-    <div v-else-if="errorMessage" class="text-sm text-destructive">
-      {{ errorMessage }}
-      <button
-        type="button"
-        class="ml-2 underline underline-offset-2"
-        @click="loadProject"
-      >
-        Retry
-      </button>
-    </div>
 
     <RenameProjectDialog
       v-model:open="renameOpen"

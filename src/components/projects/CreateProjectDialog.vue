@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { projectsAPI } from '@/api/v1/projects'
 import { projectErrorMessage } from '@/lib/project-ui'
+import { toast } from 'vue-sonner'
 
 const open = defineModel('open', { type: Boolean, default: false })
 
@@ -45,9 +46,8 @@ async function onSubmit() {
     emit('created', project)
   } catch (e) {
     console.error('Failed to create project', e)
-    errorMessage.value = projectErrorMessage(
-      e,
-      'Could not create project. Please try again.',
+    toast.error(
+      projectErrorMessage(e, 'Could not create project. Please try again later.'),
     )
   } finally {
     submitting.value = false

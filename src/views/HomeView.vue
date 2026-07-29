@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { useWalletConnect } from '@/composables/use-wallet-connect'
 import { useAuthStore } from '@/stores/auth'
@@ -8,7 +9,6 @@ import { useAuthStore } from '@/stores/auth'
 const router = useRouter()
 const auth = useAuthStore()
 const { connect } = useWalletConnect()
-const errorMessage = ref('')
 const loading = ref(false)
 
 function goDashboard() {
@@ -16,23 +16,23 @@ function goDashboard() {
 }
 
 async function onConnect() {
-  errorMessage.value = ''
   loading.value = true
   try {
     const result = await connect({ name: 'projects' })
     if (result.success) return
 
     if (result.reason === 'missing_project_id') {
-      errorMessage.value =
-        'Missing VITE_REOWN_PROJECT_ID. Create one at https://dashboard.reown.com and add it to .env'
+      toast.error(
+        'Missing VITE_REOWN_PROJECT_ID. Create one at https://dashboard.reown.com and add it to .env',
+      )
     } else if (result.reason === 'connect_cancelled') {
-      errorMessage.value = 'Wallet connection was cancelled.'
+      toast.error('Wallet connection was cancelled.')
     } else if (result.reason === 'auth_failed') {
-      errorMessage.value = 'Authentication failed or was rejected.'
+      toast.error('Authentication failed or was rejected.')
     } else if (result.reason === 'already_authenticating') {
-      errorMessage.value = 'Authentication is already in progress.'
+      toast.error('Authentication is already in progress.')
     } else {
-      errorMessage.value = 'Could not connect wallet. Please try again.'
+      toast.error('Could not connect wallet. Please try again later.')
     }
   } finally {
     loading.value = false
@@ -64,10 +64,6 @@ async function onConnect() {
       >
         {{ loading || auth.isAuthenticating ? 'Connecting…' : 'Connect Wallet' }}
       </Button>
-
-      <p v-if="errorMessage" class="mt-4 text-sm text-destructive">
-        {{ errorMessage }}
-      </p>
     </div>
   </div>
 </template>

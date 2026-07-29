@@ -5,6 +5,7 @@ import HomeView from '@/views/HomeView.vue'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
 import ProjectListView from '@/views/ProjectListView.vue'
 import ProjectDetailView from '@/views/ProjectDetailView.vue'
+import CreditsView from '@/views/CreditsView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -20,6 +21,11 @@ const router = createRouter({
       meta: { requiresAuth: true },
       redirect: { name: 'projects' },
       children: [
+        {
+          path: 'credits',
+          name: 'credits',
+          component: CreditsView
+        },
         {
           path: 'projects',
           name: 'projects',

@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
-import { FolderKanban, LogOut } from 'lucide-vue-next'
+import { Coins, FolderKanban, LogOut } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth'
 import { useWalletStore } from '@/stores/wallet'
@@ -10,6 +10,8 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const wallet = useWalletStore()
+
+const creditsNavActive = computed(() => route.name === 'credits')
 
 const projectsNavActive = computed(
   () => route.name === 'projects' || route.name === 'project-detail',
@@ -44,6 +46,18 @@ async function signOut() {
         >
           <FolderKanban class="size-4" />
           Projects
+        </RouterLink>
+        <RouterLink
+          :to="{ name: 'credits' }"
+          class="mt-1 flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-sidebar-primary hover:text-sidebar-primary-foreground"
+          :class="
+            creditsNavActive
+              ? 'bg-sidebar-primary font-medium text-sidebar-primary-foreground'
+              : ''
+          "
+        >
+          <Coins class="size-4" />
+          Credits
         </RouterLink>
       </nav>
 

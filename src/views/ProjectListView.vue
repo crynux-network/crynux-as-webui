@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Plus } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import CreateProjectDialog from '@/components/projects/CreateProjectDialog.vue'
 import ApiKeyRevealDialog from '@/components/projects/ApiKeyRevealDialog.vue'
@@ -17,22 +18,21 @@ const router = useRouter()
 
 const projects = ref([])
 const loading = ref(false)
-const errorMessage = ref('')
+const projectsReady = ref(false)
 const createOpen = ref(false)
 const revealOpen = ref(false)
 const revealedApiKey = ref('')
 
 async function loadProjects() {
-  errorMessage.value = ''
   loading.value = true
   try {
     const data = await projectsAPI.list()
     projects.value = data?.projects ?? []
+    projectsReady.value = true
   } catch (e) {
     console.error('Failed to list projects', e)
-    errorMessage.value = projectErrorMessage(
-      e,
-      'Could not load projects. Please try again.',
+    toast.error(
+      projectErrorMessage(e, 'Could not load projects. Please try again later.'),
     )
   } finally {
     loading.value = false
@@ -73,17 +73,6 @@ onMounted(() => {
       </Button>
     </div>
 
-    <p v-if="errorMessage" class="mb-4 text-sm text-destructive">
-      {{ errorMessage }}
-      <button
-        type="button"
-        class="ml-2 underline underline-offset-2"
-        @click="loadProjects"
-      >
-        Retry
-      </button>
-    </p>
-
     <div
       v-if="loading && projects.length === 0"
       class="rounded-lg border border-border px-4 py-10 text-center text-sm text-muted-foreground"
@@ -92,7 +81,7 @@ onMounted(() => {
     </div>
 
     <div
-      v-else-if="!loading && projects.length === 0 && !errorMessage"
+      v-else-if="projectsReady && projects.length === 0"
       class="rounded-lg border border-dashed border-border px-4 py-10 text-center"
     >
       <p class="text-sm text-muted-foreground">No projects yet.</p>

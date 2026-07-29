@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { projectsAPI } from '@/api/v1/projects'
 import { projectErrorMessage } from '@/lib/project-ui'
+import { toast } from 'vue-sonner'
 
 const open = defineModel('open', { type: Boolean, default: false })
 
@@ -55,9 +56,8 @@ async function onSubmit() {
     emit('renamed', project)
   } catch (e) {
     console.error('Failed to rename project', e)
-    errorMessage.value = projectErrorMessage(
-      e,
-      'Could not rename project. Please try again.',
+    toast.error(
+      projectErrorMessage(e, 'Could not rename project. Please try again later.'),
     )
   } finally {
     submitting.value = false

@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { projectsAPI } from '@/api/v1/projects'
 import { projectErrorMessage } from '@/lib/project-ui'
+import { toast } from 'vue-sonner'
 
 const open = defineModel('open', { type: Boolean, default: false })
 
@@ -23,11 +24,9 @@ const props = defineProps({
 const emit = defineEmits(['deleted'])
 
 const submitting = ref(false)
-const errorMessage = ref('')
 
 watch(open, (isOpen) => {
   if (isOpen) {
-    errorMessage.value = ''
     submitting.value = false
   }
 })
@@ -35,7 +34,6 @@ watch(open, (isOpen) => {
 async function onConfirm() {
   if (props.projectId == null) return
 
-  errorMessage.value = ''
   submitting.value = true
   try {
     await projectsAPI.remove(props.projectId)
@@ -43,9 +41,8 @@ async function onConfirm() {
     emit('deleted')
   } catch (e) {
     console.error('Failed to delete project', e)
-    errorMessage.value = projectErrorMessage(
-      e,
-      'Could not delete project. Please try again.',
+    toast.error(
+      projectErrorMessage(e, 'Could not delete project. Please try again later.'),
     )
   } finally {
     submitting.value = false
@@ -67,10 +64,6 @@ async function onConfirm() {
           immediately. This cannot be undone.
         </AlertDialogDescription>
       </AlertDialogHeader>
-
-      <p v-if="errorMessage" class="text-sm text-destructive">
-        {{ errorMessage }}
-      </p>
 
       <AlertDialogFooter>
         <AlertDialogCancel as-child>
