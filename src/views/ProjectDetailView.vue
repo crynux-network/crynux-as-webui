@@ -30,18 +30,19 @@ import { llmAPI } from '@/api/v1/llm'
 import { projectsAPI } from '@/api/v1/projects'
 import { projectLlmBaseUrl } from '@/lib/project-url'
 import {
-  DEFAULT_COMPLETION_CREDITS_PER_TOKEN,
-  DEFAULT_PROMPT_CREDITS_PER_TOKEN,
-  DEFAULT_VRAM_TIERS,
-  buildPricingRows,
-  formatCredits,
-} from '@/lib/llm-billing'
-import {
-  TOKEN_RATIO_SLIDER_MAX,
+  DEFAULT_MAX_TOKEN_RATIO,
+  buildTokenRatioOptions,
   formatTokenRatio,
   sliderIndexToTokenRatio,
   tokenRatioToSliderIndex,
 } from '@/lib/token-ratio'
+import {
+  buildExampleRows,
+  formatCredits,
+  formatSeconds,
+  formatTokenCount,
+  priorityToCostLevel,
+} from '@/lib/llm-billing'
 import {
   copyText,
   projectErrorMessage,
@@ -54,11 +55,27 @@ const router = useRouter()
 const project = ref(null)
 const loading = ref(false)
 const savingRatio = ref(false)
-const sliderIndex = ref([tokenRatioToSliderIndex(1)])
+const maxTokenRatio = ref(DEFAULT_MAX_TOKEN_RATIO)
+const tokenRatioOptions = computed(() =>
+  buildTokenRatioOptions(maxTokenRatio.value),
+)
+const tokenRatioSliderMax = computed(() =>
+  Math.max(0, tokenRatioOptions.value.length - 1),
+)
+const sliderIndex = ref([
+  tokenRatioToSliderIndex(1, buildTokenRatioOptions(DEFAULT_MAX_TOKEN_RATIO)),
+])
 const savedTokenRatio = ref(1)
-const vramTiers = ref([...DEFAULT_VRAM_TIERS])
-const promptCreditsPerToken = ref(DEFAULT_PROMPT_CREDITS_PER_TOKEN)
-const completionCreditsPerToken = ref(DEFAULT_COMPLETION_CREDITS_PER_TOKEN)
+const baseVram = ref(8)
+const referencePriorityGwei = ref('1')
+const creditsPerGwei = ref(1)
+const highestPriorityGwei = ref(null)
+const lowestPriorityGwei = ref(null)
+const pricingExamples = ref([])
+const pricingPromptTokens = ref(1_000_000)
+const pricingCompletionTokens = ref(1_000_000)
+const timePromptTokens = ref(512)
+const timeCompletionTokens = ref(2048)
 const urlCopied = ref(false)
 let urlCopiedTimer = null
 let ratioSaveTimer = null
@@ -80,7 +97,7 @@ const llmBaseUrl = computed(() =>
     : '',
 )
 const currentTokenRatio = computed(() =>
-  sliderIndexToTokenRatio(sliderIndex.value[0]),
+  sliderIndexToTokenRatio(sliderIndex.value[0], tokenRatioOptions.value),
 )
 const ratioDirty = computed(
   () =>
@@ -88,11 +105,51 @@ const ratioDirty = computed(
     formatTokenRatio(savedTokenRatio.value),
 )
 const pricingRows = computed(() =>
-  buildPricingRows(vramTiers.value, currentTokenRatio.value, {
-    promptCreditsPerToken: promptCreditsPerToken.value,
-    completionCreditsPerToken: completionCreditsPerToken.value,
+  buildExampleRows({
+    examples: pricingExamples.value,
+    tokenRatio: currentTokenRatio.value,
+    baseVram: baseVram.value,
+    referencePriorityGwei: referencePriorityGwei.value,
+    creditsPerGwei: creditsPerGwei.value,
+    pricingPromptTokens: pricingPromptTokens.value,
+    pricingCompletionTokens: pricingCompletionTokens.value,
+    timePromptTokens: timePromptTokens.value,
+    timeCompletionTokens: timeCompletionTokens.value,
   }),
 )
+const queueRangeBar = computed(() => {
+  const options = tokenRatioOptions.value
+  const sliderMax = tokenRatioSliderMax.value
+  const lowLevel = priorityToCostLevel(
+    lowestPriorityGwei.value,
+    referencePriorityGwei.value,
+  )
+  const highLevel = priorityToCostLevel(
+    highestPriorityGwei.value,
+    referencePriorityGwei.value,
+  )
+  if (lowLevel == null || highLevel == null) return null
+
+  const minCostLevel = options[0]
+  const maxCostLevel = options[sliderMax]
+  const outOfRange =
+    (lowLevel < minCostLevel && highLevel < minCostLevel) ||
+    (lowLevel > maxCostLevel && highLevel > maxCostLevel)
+
+  const minIndex = tokenRatioToSliderIndex(lowLevel, options)
+  const maxIndex = tokenRatioToSliderIndex(highLevel, options)
+  const leftIndex = Math.min(minIndex, maxIndex)
+  const rightIndex = Math.max(minIndex, maxIndex)
+
+  return {
+    outOfRange,
+    minPercent: (minIndex / sliderMax) * 100,
+    maxPercent: (maxIndex / sliderMax) * 100,
+    blueLeft: (leftIndex / sliderMax) * 100,
+    blueWidth: ((rightIndex - leftIndex) / sliderMax) * 100,
+  }
+})
+const showQueueRangeBar = computed(() => queueRangeBar.value != null)
 
 watch(projectId, () => {
   clearRatioSaveTimer()
@@ -133,33 +190,68 @@ function showCostLevelToast(type, message) {
 
 function setSliderFromRatio(tokenRatio) {
   syncingSlider = true
-  sliderIndex.value = [tokenRatioToSliderIndex(tokenRatio)]
+  sliderIndex.value = [
+    tokenRatioToSliderIndex(tokenRatio, tokenRatioOptions.value),
+  ]
   syncingSlider = false
 }
 
 async function loadBillingConfig() {
   try {
     const data = await llmAPI.getBillingConfig()
-    const tiers = Array.isArray(data?.vram_ratios) ? data.vram_ratios : []
-    if (tiers.length > 0) {
-      vramTiers.value = tiers.map((tier) => ({
-        max_vram: tier.max_vram,
-        ratio: tier.ratio,
-      }))
+    const nextBaseVram = Number(data?.base_vram)
+    if (Number.isFinite(nextBaseVram) && nextBaseVram > 0) {
+      baseVram.value = nextBaseVram
     }
-    const promptPrice = Number(data?.prompt_credits_per_token)
-    const completionPrice = Number(data?.completion_credits_per_token)
-    if (Number.isFinite(promptPrice) && promptPrice > 0) {
-      promptCreditsPerToken.value = promptPrice
+    if (data?.reference_priority_gwei) {
+      referencePriorityGwei.value = String(data.reference_priority_gwei)
     }
-    if (Number.isFinite(completionPrice) && completionPrice > 0) {
-      completionCreditsPerToken.value = completionPrice
+    const nextCreditsPerGwei = Number(data?.credits_per_gwei)
+    if (Number.isFinite(nextCreditsPerGwei) && nextCreditsPerGwei > 0) {
+      creditsPerGwei.value = nextCreditsPerGwei
+    }
+    const nextMaxTokenRatio = Number(data?.max_token_ratio)
+    if (Number.isFinite(nextMaxTokenRatio) && nextMaxTokenRatio >= 2) {
+      maxTokenRatio.value = Math.floor(nextMaxTokenRatio)
+      if (project.value) {
+        setSliderFromRatio(savedTokenRatio.value)
+      }
+    }
+    if (data?.highest_priority_gwei != null && data?.lowest_priority_gwei != null) {
+      highestPriorityGwei.value = String(data.highest_priority_gwei)
+      lowestPriorityGwei.value = String(data.lowest_priority_gwei)
+    } else {
+      highestPriorityGwei.value = null
+      lowestPriorityGwei.value = null
     }
   } catch (e) {
     console.error('Failed to load LLM billing config', e)
-    vramTiers.value = [...DEFAULT_VRAM_TIERS]
-    promptCreditsPerToken.value = DEFAULT_PROMPT_CREDITS_PER_TOKEN
-    completionCreditsPerToken.value = DEFAULT_COMPLETION_CREDITS_PER_TOKEN
+  }
+}
+
+async function loadPricingExamples() {
+  try {
+    const data = await llmAPI.getPricingExamples()
+    pricingExamples.value = Array.isArray(data?.examples) ? data.examples : []
+    const nextPricingPrompt = Number(data?.pricing_prompt_tokens)
+    const nextPricingCompletion = Number(data?.pricing_completion_tokens)
+    const nextTimePrompt = Number(data?.time_prompt_tokens)
+    const nextTimeCompletion = Number(data?.time_completion_tokens)
+    if (Number.isFinite(nextPricingPrompt) && nextPricingPrompt > 0) {
+      pricingPromptTokens.value = nextPricingPrompt
+    }
+    if (Number.isFinite(nextPricingCompletion) && nextPricingCompletion > 0) {
+      pricingCompletionTokens.value = nextPricingCompletion
+    }
+    if (Number.isFinite(nextTimePrompt) && nextTimePrompt > 0) {
+      timePromptTokens.value = nextTimePrompt
+    }
+    if (Number.isFinite(nextTimeCompletion) && nextTimeCompletion > 0) {
+      timeCompletionTokens.value = nextTimeCompletion
+    }
+  } catch (e) {
+    console.error('Failed to load LLM pricing examples', e)
+    pricingExamples.value = []
   }
 }
 
@@ -272,6 +364,7 @@ function onDeleted() {
 
 onMounted(() => {
   loadBillingConfig()
+  loadPricingExamples()
   loadProject()
 })
 
@@ -407,68 +500,174 @@ onUnmounted(() => {
           <div class="mb-5 max-w-3xl space-y-3 text-sm text-muted-foreground">
             <p>
               Every LLM call spends Credits from your account. The charge depends
-              on input tokens, output tokens, and the model VRAM tier. Larger
-              models (higher VRAM) cost more per token.
+              on model execution time, VRAM weight, and this project cost level.
             </p>
             <p>
-              This slider is your project cost level. Lower levels spend fewer
-              Credits but jobs may wait longer on the network; higher levels
-              spend more Credits and usually get scheduled faster.
+              Lower cost levels spend fewer Credits but jobs may wait longer in
+              the network queue. Higher cost levels spend more Credits and sit
+              higher in the queue. The bar under the slider shows the current
+              queue range between Min and Max.
             </p>
           </div>
 
-          <div class="mb-6 flex items-center gap-3">
+          <div
+            class="mb-6 grid grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2"
+          >
             <span
               class="shrink-0 font-mono text-2xl font-semibold tabular-nums text-primary"
             >
               {{ formatTokenRatio(currentTokenRatio) }}×
             </span>
             <span class="shrink-0 text-xs text-muted-foreground">Cheaper</span>
-            <Slider
-              v-model="sliderIndex"
-              :min="0"
-              :max="TOKEN_RATIO_SLIDER_MAX"
-              :step="1"
-              class="min-w-0 flex-1"
-            />
+              <Slider
+                v-model="sliderIndex"
+                :min="0"
+                :max="tokenRatioSliderMax"
+                :step="1"
+                class="w-full"
+              />
             <span class="shrink-0 text-xs text-muted-foreground">Faster</span>
+            <div
+              v-if="showQueueRangeBar"
+              class="relative col-start-3 h-8"
+              aria-hidden="true"
+            >
+              <div
+                class="absolute inset-x-0 top-1.5 h-1.5 overflow-hidden rounded-full bg-red-500"
+              >
+                <div
+                  v-if="!queueRangeBar.outOfRange"
+                  class="absolute inset-y-0 bg-blue-500"
+                  :style="{
+                    left: `${queueRangeBar.blueLeft}%`,
+                    width: `${Math.max(queueRangeBar.blueWidth, 0.5)}%`,
+                  }"
+                />
+              </div>
+              <div
+                class="absolute top-0 flex w-0 -translate-x-1/2 flex-col items-center"
+                :style="{ left: `${queueRangeBar.minPercent}%` }"
+              >
+                <div class="h-4 w-0.5 bg-foreground/80" />
+                <span class="mt-0.5 text-[10px] leading-none text-muted-foreground">
+                  Min
+                </span>
+              </div>
+              <div
+                class="absolute top-0 flex w-0 -translate-x-1/2 flex-col items-center"
+                :style="{ left: `${queueRangeBar.maxPercent}%` }"
+              >
+                <div class="h-4 w-0.5 bg-foreground/80" />
+                <span class="mt-0.5 text-[10px] leading-none text-muted-foreground">
+                  Max
+                </span>
+              </div>
+            </div>
           </div>
 
-          <div class="overflow-hidden rounded-xl border border-border bg-muted/30">
-            <div class="border-b border-border px-4 py-3">
-              <p class="text-sm font-medium text-foreground">
-                Credits per 1M tokens
-              </p>
-              <p class="mt-0.5 text-xs text-muted-foreground">
-                Prices update with your current cost level.
-              </p>
+          <div class="grid gap-4 lg:grid-cols-2">
+            <div class="overflow-hidden rounded-xl border border-border bg-muted/30">
+              <div class="border-b border-border px-4 py-3">
+                <p class="text-sm font-medium text-foreground">
+                  Credits per 1M tokens
+                </p>
+                <p class="mt-0.5 text-xs text-muted-foreground">
+                  Estimates only. Actual charges may differ.
+                </p>
+              </div>
+              <table class="w-full text-left text-sm">
+                <thead>
+                  <tr class="border-b border-border text-muted-foreground">
+                    <th class="px-4 py-3 font-medium">Model</th>
+                    <th class="px-4 py-3 text-right font-medium">1M Input</th>
+                    <th class="px-4 py-3 text-right font-medium">1M Output</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="row in pricingRows"
+                    :key="`credits-${row.id}`"
+                    class="border-b border-border last:border-b-0"
+                  >
+                    <td class="px-4 py-3.5 text-foreground">
+                      <div>{{ row.model }}</div>
+                      <div class="text-xs text-muted-foreground">
+                        {{ row.minVram }} GB
+                      </div>
+                    </td>
+                    <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
+                      <span class="font-semibold">{{ formatCredits(row.inputCredits) }}</span>
+                      <span class="ml-1 text-xs font-normal text-muted-foreground">Credits</span>
+                    </td>
+                    <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
+                      <span class="font-semibold">{{ formatCredits(row.outputCredits) }}</span>
+                      <span class="ml-1 text-xs font-normal text-muted-foreground">Credits</span>
+                    </td>
+                  </tr>
+                  <tr v-if="pricingRows.length === 0">
+                    <td
+                      colspan="3"
+                      class="px-4 py-3.5 text-muted-foreground"
+                    >
+                      No model examples available.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-            <table class="w-full text-left text-sm">
-              <thead>
-                <tr class="border-b border-border text-muted-foreground">
-                  <th class="px-4 py-3 font-medium">Name</th>
-                  <th class="px-4 py-3 text-right font-medium">Input</th>
-                  <th class="px-4 py-3 text-right font-medium">Output</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="row in pricingRows"
-                  :key="row.id"
-                  class="border-b border-border last:border-b-0"
-                >
-                  <td class="px-4 py-3.5 text-foreground">
-                    {{ row.name }}
-                  </td>
-                  <td class="px-4 py-3.5 text-right font-semibold tabular-nums text-foreground">
-                    {{ formatCredits(row.inputCredits) }}
-                  </td>
-                  <td class="px-4 py-3.5 text-right font-semibold tabular-nums text-foreground">
-                    {{ formatCredits(row.outputCredits) }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+
+            <div class="overflow-hidden rounded-xl border border-border bg-muted/30">
+              <div class="border-b border-border px-4 py-3">
+                <p class="text-sm font-medium text-foreground">
+                  Execution time examples
+                </p>
+                <p class="mt-0.5 text-xs text-muted-foreground">
+                  Actual execution time only. Does not include queue wait, and
+                  does not change with cost level.
+                </p>
+              </div>
+              <table class="w-full text-left text-sm">
+                <thead>
+                  <tr class="border-b border-border text-muted-foreground">
+                    <th class="px-4 py-3 font-medium">Model</th>
+                    <th class="px-4 py-3 text-right font-medium">Input</th>
+                    <th class="px-4 py-3 text-right font-medium">Output</th>
+                    <th class="px-4 py-3 text-right font-medium">Seconds</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="row in pricingRows"
+                    :key="`time-${row.id}`"
+                    class="border-b border-border last:border-b-0"
+                  >
+                    <td class="px-4 py-3.5 text-foreground">
+                      <div>{{ row.model }}</div>
+                      <div class="text-xs text-muted-foreground">
+                        {{ row.minVram }} GB
+                      </div>
+                    </td>
+                    <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
+                      {{ formatTokenCount(timePromptTokens) }}
+                    </td>
+                    <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
+                      {{ formatTokenCount(timeCompletionTokens) }}
+                    </td>
+                    <td class="px-4 py-3.5 text-right font-semibold tabular-nums text-foreground">
+                      {{ formatSeconds(row.executionSeconds) }}
+                    </td>
+                  </tr>
+                  <tr v-if="pricingRows.length === 0">
+                    <td
+                      colspan="4"
+                      class="px-4 py-3.5 text-muted-foreground"
+                    >
+                      No model examples available.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </section>

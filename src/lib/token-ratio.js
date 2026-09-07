@@ -1,12 +1,15 @@
 export const DEFAULT_TOKEN_RATIO = 1.0
 
-/** Allowed display values: 0.1..1.0 step 0.1, then 2..10 step 1. */
-export const TOKEN_RATIO_OPTIONS = [
-  0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,
-  2, 3, 4, 5, 6, 7, 8, 9, 10,
-]
+/** Fallback max cost level before billing_config loads. */
+export const DEFAULT_MAX_TOKEN_RATIO = 30
 
-export const TOKEN_RATIO_SLIDER_MAX = TOKEN_RATIO_OPTIONS.length - 1
+export function buildTokenRatioOptions(maxTokenRatio = DEFAULT_MAX_TOKEN_RATIO) {
+  const max = Math.max(2, Math.floor(Number(maxTokenRatio) || DEFAULT_MAX_TOKEN_RATIO))
+  return [
+    0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,
+    ...Array.from({ length: max - 1 }, (_, i) => i + 2),
+  ]
+}
 
 export function formatTokenRatio(value) {
   if (value == null || Number.isNaN(Number(value))) return String(value ?? '')
@@ -14,15 +17,15 @@ export function formatTokenRatio(value) {
   return Number.isInteger(n) ? String(n) : n.toFixed(1)
 }
 
-export function tokenRatioToSliderIndex(value) {
+export function tokenRatioToSliderIndex(value, options = buildTokenRatioOptions()) {
   const n = Number(value)
-  const exact = TOKEN_RATIO_OPTIONS.findIndex((option) => option === n)
+  const exact = options.findIndex((option) => option === n)
   if (exact >= 0) return exact
 
   let best = 0
   let bestDiff = Number.POSITIVE_INFINITY
-  for (let i = 0; i < TOKEN_RATIO_OPTIONS.length; i += 1) {
-    const diff = Math.abs(TOKEN_RATIO_OPTIONS[i] - n)
+  for (let i = 0; i < options.length; i += 1) {
+    const diff = Math.abs(options[i] - n)
     if (diff < bestDiff) {
       best = i
       bestDiff = diff
@@ -31,10 +34,8 @@ export function tokenRatioToSliderIndex(value) {
   return best
 }
 
-export function sliderIndexToTokenRatio(index) {
-  const i = Math.min(
-    TOKEN_RATIO_SLIDER_MAX,
-    Math.max(0, Math.round(Number(index) || 0)),
-  )
-  return TOKEN_RATIO_OPTIONS[i]
+export function sliderIndexToTokenRatio(index, options = buildTokenRatioOptions()) {
+  const maxIndex = Math.max(0, options.length - 1)
+  const i = Math.min(maxIndex, Math.max(0, Math.round(Number(index) || 0)))
+  return options[i]
 }

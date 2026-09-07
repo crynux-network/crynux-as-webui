@@ -1,97 +1,169 @@
-/** Fallback unit prices when GET /v1/llm/billing_config is unavailable. */
-export const DEFAULT_PROMPT_CREDITS_PER_TOKEN = 1
-export const DEFAULT_COMPLETION_CREDITS_PER_TOKEN = 1
-
-export const MILLION_TOKENS = 1_000_000
-
-/** Fallback tiers when GET /v1/llm/billing_config is unavailable. */
-export const DEFAULT_VRAM_TIERS = [
-  { max_vram: 24, ratio: 0.5 },
-  { max_vram: 96, ratio: 1.5 },
-]
-
 /**
- * Credits charged for one LLM call.
- * Mirrors AS integer formula: (P*R*V*Pp + C*R*V*Cp) / 100
- * where R and V are display ratios stored as display × 10.
+ * Shared billable_gwei helpers for Credits and execution-time examples.
+ *
+ * billable_gwei = Pref * R * estimated_node_seconds * vram_weight
+ * credits = floor(billable_gwei * G)
  */
+
+export function vramWeight(minVram, baseVram) {
+  const v = Number(minVram)
+  const b = Number(baseVram)
+  if (!(b > 0) || !(v > 0)) return 0
+  return Math.max(v, b) / b
+}
+
 export function estimateCredits({
+  promptTokens = 0,
+  completionTokens = 0,
+  tokenRatio,
+  minVram,
+  baseVram,
+  referencePriorityGwei,
+  creditsPerGwei,
+  constantSeconds = 0,
+  secondsPerInputToken = 0,
+  secondsPerOutputToken = 0,
+}) {
+  const pref = Number(referencePriorityGwei)
+  const g = Number(creditsPerGwei)
+  const r = Number(tokenRatio)
+  if (!(pref > 0) || !(g > 0) || !(r > 0)) return 0
+
+  const weight = vramWeight(minVram, baseVram)
+  if (!(weight > 0)) return 0
+
+  const estimatedNodeSeconds =
+    Number(constantSeconds) +
+    Number(secondsPerInputToken) * Number(promptTokens) +
+    Number(secondsPerOutputToken) * Number(completionTokens)
+
+  if (!(estimatedNodeSeconds >= 0)) return 0
+
+  const billableGwei = pref * r * estimatedNodeSeconds * weight
+  return Math.trunc(billableGwei * g)
+}
+
+export function estimateExecutionSeconds({
   promptTokens,
   completionTokens,
-  tokenRatio,
-  vramRatio,
-  promptCreditsPerToken = DEFAULT_PROMPT_CREDITS_PER_TOKEN,
-  completionCreditsPerToken = DEFAULT_COMPLETION_CREDITS_PER_TOKEN,
+  constantSeconds = 0,
+  secondsPerInputToken = 0,
+  secondsPerOutputToken = 0,
 }) {
-  const storedTokenRatio = Math.round(Number(tokenRatio) * 10)
-  const storedVramRatio = Math.round(Number(vramRatio) * 10)
-  const numerator =
-    Number(promptTokens) *
-      storedTokenRatio *
-      storedVramRatio *
-      promptCreditsPerToken +
-    Number(completionTokens) *
-      storedTokenRatio *
-      storedVramRatio *
-      completionCreditsPerToken
-  return Math.trunc(numerator / 100)
+  return (
+    Number(constantSeconds) +
+    Number(secondsPerInputToken) * Number(promptTokens) +
+    Number(secondsPerOutputToken) * Number(completionTokens)
+  )
 }
 
-export function creditsPerMillionTokens({
+export function buildExampleRows({
+  examples,
   tokenRatio,
-  vramRatio,
-  creditsPerToken = DEFAULT_PROMPT_CREDITS_PER_TOKEN,
+  baseVram,
+  referencePriorityGwei,
+  creditsPerGwei,
+  pricingPromptTokens,
+  pricingCompletionTokens,
+  timePromptTokens,
+  timeCompletionTokens,
 }) {
-  return estimateCredits({
-    promptTokens: MILLION_TOKENS,
-    completionTokens: 0,
-    tokenRatio,
-    vramRatio,
-    promptCreditsPerToken: creditsPerToken,
-    completionCreditsPerToken: creditsPerToken,
-  })
-}
-
-export function buildPricingRows(
-  tiers,
-  tokenRatio,
-  {
-    promptCreditsPerToken = DEFAULT_PROMPT_CREDITS_PER_TOKEN,
-    completionCreditsPerToken = DEFAULT_COMPLETION_CREDITS_PER_TOKEN,
-  } = {},
-) {
-  const sorted = [...tiers].sort((a, b) => a.max_vram - b.max_vram)
-  return sorted.map((tier, index) => {
-    const prevMax = index > 0 ? sorted[index - 1].max_vram : 0
-    const isLast = index === sorted.length - 1
-    let name
-    if (index === 0 && isLast) {
-      name = `All models (≤${tier.max_vram} GB tier)`
-    } else if (index === 0) {
-      name = `≤${tier.max_vram} GB VRAM`
-    } else if (isLast) {
-      name = `>${prevMax} GB VRAM`
-    } else {
-      name = `${prevMax + 1}–${tier.max_vram} GB VRAM`
-    }
+  const rows = Array.isArray(examples) ? examples : []
+  return rows.map((example) => {
+    const minVram = Number(example.min_vram)
+    const constantSeconds = Number(example.constant_seconds)
+    const secondsPerInputToken = Number(example.seconds_per_input_token)
+    const secondsPerOutputToken = Number(example.seconds_per_output_token)
     return {
-      id: `vram-${tier.max_vram}`,
-      name,
-      maxVram: tier.max_vram,
-      inputCredits: creditsPerMillionTokens({
+      id: `${example.model}-${minVram}`,
+      model: example.model,
+      minVram,
+      inputCredits: estimateCredits({
+        promptTokens: pricingPromptTokens,
+        completionTokens: 0,
         tokenRatio,
-        vramRatio: tier.ratio,
-        creditsPerToken: promptCreditsPerToken,
+        minVram,
+        baseVram,
+        referencePriorityGwei,
+        creditsPerGwei,
+        constantSeconds: 0,
+        secondsPerInputToken,
+        secondsPerOutputToken: 0,
       }),
-      outputCredits: creditsPerMillionTokens({
+      outputCredits: estimateCredits({
+        promptTokens: 0,
+        completionTokens: pricingCompletionTokens,
         tokenRatio,
-        vramRatio: tier.ratio,
-        creditsPerToken: completionCreditsPerToken,
+        minVram,
+        baseVram,
+        referencePriorityGwei,
+        creditsPerGwei,
+        constantSeconds: 0,
+        secondsPerInputToken: 0,
+        secondsPerOutputToken,
+      }),
+      executionSeconds: estimateExecutionSeconds({
+        promptTokens: timePromptTokens,
+        completionTokens: timeCompletionTokens,
+        constantSeconds,
+        secondsPerInputToken,
+        secondsPerOutputToken,
       }),
     }
   })
+}
+
+export function effectivePriorityGwei(referencePriorityGwei, tokenRatio) {
+  const pref = Number(referencePriorityGwei)
+  const r = Number(tokenRatio)
+  if (!(pref > 0) || !(r > 0)) return 0
+  return pref * r
+}
+
+export function queuePositionRatio(referencePriorityGwei, tokenRatio, medianPriorityGwei) {
+  const effective = effectivePriorityGwei(referencePriorityGwei, tokenRatio)
+  const median = Number(medianPriorityGwei)
+  if (!(median > 0) || !(effective > 0)) return null
+  return effective / median
+}
+
+/** Maps a queue priority to the matching cost level: priority / Pref. */
+export function priorityToCostLevel(priorityGwei, referencePriorityGwei) {
+  const pref = Number(referencePriorityGwei)
+  const priority = Number(priorityGwei)
+  if (!(pref > 0) || !(priority > 0)) return null
+  return priority / pref
 }
 
 export function formatCredits(credits) {
   return new Intl.NumberFormat('en-US').format(credits)
+}
+
+export function formatTokenCount(tokens) {
+  const value = Number(tokens)
+  if (!Number.isFinite(value)) return '—'
+  return new Intl.NumberFormat('en-US').format(value)
+}
+
+export function formatSeconds(seconds) {
+  const value = Number(seconds)
+  if (!Number.isFinite(value)) return '—'
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 2,
+  }).format(value)
+}
+
+export function formatGwei(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return '—'
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 4,
+  }).format(n)
+}
+
+export function formatQueueRatio(ratio) {
+  if (ratio == null || !Number.isFinite(ratio)) return '—'
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 2,
+  }).format(ratio)
 }

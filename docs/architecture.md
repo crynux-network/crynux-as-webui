@@ -29,7 +29,7 @@ Crynux AS WebUI is a Vue 3 application that interacts with:
 │  │  - account.js  Balance, deposits, charges                │   │
 │  │  - deposit.js  Deposit networks and tokens               │   │
 │  │  - projects.js Project CRUD + API key reset              │   │
-│  │  - llm.js      LLM billing config                        │   │
+│  │  - llm.js      LLM billing_config and pricing_examples   │   │
 │  └──────────────────────────────────────────────────────────┘   │
 ├─────────────────────────────────────────────────────────────────┤
 │                      External Services                           │
@@ -56,7 +56,7 @@ src/
 │       ├── account.js         # Balance, deposits, charges
 │       ├── deposit.js         # Deposit network and token config
 │       ├── projects.js        # Project CRUD + API key reset
-│       └── llm.js             # LLM billing config (VRAM tiers)
+│       └── llm.js             # LLM billing_config and pricing_examples
 ├── components/
 │   ├── layout/
 │   │   └── DashboardLayout.vue  # Fixed left sidebar + scrollable main
@@ -68,10 +68,10 @@ src/
 ├── lib/
 │   ├── appkit.js              # Reown AppKit + WagmiAdapter init
 │   ├── credits-ui.js          # Credits page formatting and deposit helpers
-│   ├── llm-billing.js         # Credits estimate helpers for UI examples
+│   ├── llm-billing.js         # Credits and execution-time example helpers
 │   ├── project-url.js         # Private LLM base URL builder
 │   ├── project-ui.js          # Project display and error helpers
-│   ├── token-ratio.js         # Allowed cost-level (token_ratio) options
+│   ├── token-ratio.js         # Cost-level options builder from max_token_ratio
 │   └── utils.js               # shadcn cn() helper
 ├── router/
 │   └── index.js               # Routes and auth guard
@@ -138,7 +138,7 @@ src/
 ### Project management views
 
 - `ProjectListView` loads `GET /v1/projects`, creates projects via `POST /v1/projects`, and opens `ApiKeyRevealDialog` when the create response includes a one-time plaintext `api_key`.
-- `ProjectDetailView` presents two primary sections: a muted LLM API panel (base URL, API key prefix, reset key; rename/delete via overflow menu) and a Cost and speed panel. The cost panel uses a cost-level slider (API field `token_ratio`) that saves after 3 seconds without further changes via `PUT /v1/projects/:id`, explains Credits charging from input/output tokens and VRAM tier, and shows a Credits-per-1M-tokens pricing table by VRAM tier using `GET /v1/llm/billing_config` (unit prices and VRAM tiers). Cost-level save feedback uses a single replaceable toast. The page leaves space below for future usage stats charts.
+- `ProjectDetailView` presents two primary sections: a muted LLM API panel (base URL, API key prefix, reset key; rename/delete via overflow menu) and a Cost Level panel. The cost panel uses a cost-level slider (API field `token_ratio`) that saves after 3 seconds without further changes via `PUT /v1/projects/:id`. The slider options MUST be `0.1` through `1.0` step `0.1`, then `2` through `max_token_ratio` step `1`, using `max_token_ratio` from `GET /v1/llm/billing_config`. When `GET /v1/llm/billing_config` provides live queue bounds, a separate range bar under the cost level slider MUST show Min and Max markers for `lowest_priority_gwei / reference_priority_gwei` and `highest_priority_gwei / reference_priority_gwei`, snapped to allowed cost levels and clamped to the bar ends. The blue segment MUST stay strictly between the Min and Max markers; segments outside that interval MUST be red when at least one bound falls inside the allowed cost level range. When both bounds fall outside on the same side, the entire bar MUST be red. The panel MUST show two example tables built from `GET /v1/llm/pricing_examples` plus `billing_config`: a `Credits per 1M tokens` table with `Model`, `1M Input`, and `1M Output` columns for separate 1M-token unit prices without `constant_seconds`, scaled by cost level; and an execution-time table with `Model`, `Input`, `Output`, and `Seconds` for a typical call of `time_prompt_tokens=512` input and `time_completion_tokens=2048` output, including `constant_seconds`, not scaled by cost level. Cost-level save feedback uses a single replaceable toast. The page leaves space below for future usage stats charts.
 - Project data is page state loaded through `projectsAPI`. There is no Pinia project store.
 - Plaintext API keys MUST NOT be persisted in local storage or route state after the reveal dialog closes.
 
@@ -268,6 +268,7 @@ optional router.push(redirect)   e.g. { name: 'projects' }
 | `projects.js` | `remove` | `DELETE /projects/:id` | Yes |
 | `projects.js` | `resetApiKey` | `POST /projects/:id/api_key/reset` | Yes |
 | `llm.js` | `getBillingConfig` | `GET /llm/billing_config` | Yes |
+| `llm.js` | `getPricingExamples` | `GET /llm/pricing_examples` | Yes |
 
 Further account APIs MUST follow the same `V1Client` + module class pattern.
 
@@ -312,7 +313,9 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `lib/appkit.js` | Reown AppKit + wagmi config |
 | `lib/credits-ui.js` | Credits formatting, deposit estimate, paymentAsset builder |
 | `lib/project-url.js` | Build private LLM base URL from `endpoint_token` |
-| `lib/token-ratio.js` | Allowed `token_ratio` display values |
+| `lib/token-ratio.js` | Builds allowed `token_ratio` display values from `max_token_ratio` |
+| `lib/llm-billing.js` | Credits and execution-time example math for Cost Level UI |
+| `api/v1/llm.js` | `billing_config` and `pricing_examples` clients |
 | `stores/wallet.js` | Wallet address sync and disconnect |
 | `stores/auth.js` | JWT session and `authenticate()` |
 | `composables/use-wallet-connect.js` | Connect + login + redirect |
@@ -328,7 +331,7 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `components/ui/sonner` | Global toast notifications via `vue-sonner` |
 | `views/CreditsView.vue` | Balance, deposit, deposits and charges history |
 | `views/ProjectListView.vue` | Project list and create flow |
-| `views/ProjectDetailView.vue` | Project detail, edit, reset key, delete |
+| `views/ProjectDetailView.vue` | Project detail, Cost Level examples, queue position, reset key, delete |
 | `config.json` | `as_url` |
 | `main.js` | App bootstrap, plugins, unauthorized handler |
 | `App.vue` | Root router outlet and toast `Toaster` |
