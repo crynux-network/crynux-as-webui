@@ -30,13 +30,13 @@ Create a project ID at https://dashboard.reown.com and set:
 VITE_REOWN_PROJECT_ID=your_project_id
 ```
 
-3. Point the API client at your Crynux AS server in `src/config.json`:
+3. Copy the app config and edit it for your environment:
 
-```json
-{
-  "as_url": "http://127.0.0.1:8090"
-}
+```bash
+cp src/config.example.json src/config.json
 ```
+
+`src/config.json` is gitignored. Edit `as_url` and `networks` there. Known chain ids use AppKit preset RPC URLs and block explorers by default; set optional `rpc_urls` or `tx_explorer` to override.
 
 4. Start the dev server:
 

@@ -26,8 +26,8 @@ Crynux AS WebUI is a Vue 3 application that interacts with:
 │  │  v1 (Crynux AS API)                                      │   │
 │  │  - v1.js       Axios client + Bearer interceptor         │   │
 │  │  - auth.js     POST /auth/login                          │   │
-│  │  - account.js  Balance, deposits, charges                │   │
-│  │  - deposit.js  Deposit networks and tokens               │   │
+│  │  - account.js  Balance, purchases, charges               │   │
+│  │  - purchase.js Purchase networks and tokens              │   │
 │  │  - projects.js Project CRUD + API key reset              │   │
 │  │  - llm.js      LLM billing_config and pricing_examples   │   │
 │  └──────────────────────────────────────────────────────────┘   │
@@ -36,7 +36,7 @@ Crynux AS WebUI is a Vue 3 application that interacts with:
 │  ┌──────────────────────┐  ┌──────────────────────┐             │
 │  │   Crynux AS API      │  │  Reown AppKit        │             │
 │  │   (REST Backend)     │  │  + wagmi / viem      │             │
-│  │                      │  │  + AppKit Pay        │             │
+│  │                      │  │                      │             │
 │  └──────────────────────┘  └──────────────────────┘             │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -53,21 +53,21 @@ src/
 │   └── v1/
 │       ├── v1.js              # Axios client with auth interceptor
 │       ├── auth.js            # Wallet login API
-│       ├── account.js         # Balance, deposits, charges
-│       ├── deposit.js         # Deposit network and token config
+│       ├── account.js         # Balance, purchases, charges
+│       ├── purchase.js        # Purchase network and token config
 │       ├── projects.js        # Project CRUD + API key reset
 │       └── llm.js             # LLM billing_config and pricing_examples
 ├── components/
 │   ├── layout/
 │   │   └── DashboardLayout.vue  # Fixed left sidebar + scrollable main
-│   ├── credits/               # Deposit dialog
+│   ├── credits/               # Purchase dialog
 │   ├── projects/              # Project dialogs (create, reveal key, reset, delete, rename)
 │   └── ui/                    # shadcn-vue generated components
 ├── composables/
 │   └── use-wallet-connect.js  # Connect modal → auth → optional redirect
 ├── lib/
 │   ├── appkit.js              # Reown AppKit + WagmiAdapter init
-│   ├── credits-ui.js          # Credits page formatting and deposit helpers
+│   ├── credits-ui.js          # Credits page formatting and purchase helpers
 │   ├── llm-billing.js         # Credits and execution-time example helpers
 │   ├── project-url.js         # Private LLM base URL builder
 │   ├── project-ui.js          # Project display and error helpers
@@ -80,12 +80,13 @@ src/
 │   └── wallet.js              # Wallet address synced from wagmi
 ├── views/
 │   ├── HomeView.vue           # Public home + Connect
-│   ├── CreditsView.vue        # Balance, deposit, deposits/charges history
+│   ├── CreditsView.vue        # Balance, purchase, purchases/usage history
 │   ├── ProjectListView.vue    # Dashboard project list + create
 │   └── ProjectDetailView.vue  # Project detail, edit, reset key, delete
 ├── assets/
 │   └── index.css              # Tailwind + theme CSS variables
-├── config.json                # as_url and other app config
+├── config.example.json        # committed template for local config.json
+├── config.json                # local as_url / networks (gitignored)
 ├── App.vue
 └── main.js
 ```
@@ -103,7 +104,7 @@ src/
 | HTTP | axios |
 | UI | shadcn-vue + Tailwind CSS v4 + Lucide |
 | Wallet | Reown AppKit + `@reown/appkit-adapter-wagmi` + `@wagmi/vue` + viem |
-| Deposit payment | Reown AppKit Pay (`@reown/appkit-pay`) |
+| Credits purchase | Direct ERC20 `transfer` via wagmi `writeContract` |
 
 ---
 
@@ -129,11 +130,12 @@ src/
 
 ### Credits view
 
-- `CreditsView` shows the account Credits balance from `GET /v1/account`, a Deposit action, and two history tabs.
-- The Deposit dialog loads supported networks and tokens from `GET /v1/deposit/networks`. The user selects network, token, and amount. Estimated Credits MUST use integer arithmetic matching Crynux AS: `credits = floor(raw * credits_per_token / 10^decimals)` where `raw` is the token amount in base units.
-- Deposit submission MUST require the connected wagmi address to equal `auth.sessionAddress`. The dialog MUST call AppKit Pay `pay({ recipient, amount, paymentAsset })` with `recipient` equal to the selected network `receiving_address` and `paymentAsset` built from the selected token (`eip155:<chain_id>`, contract address, decimals, symbol).
-- AppKit Pay waits for the wallet payment result. The WebUI MUST NOT treat Pay success as Credits credited. Credits crediting remains owned by the Crynux AS deposit scanner. After Pay success the page MUST poll `GET /v1/account` and `GET /v1/account/deposits` for a short interval and surface toast feedback when the balance updates or when the poll window ends.
-- The Deposits tab lists `GET /v1/account/deposits`. The Charges tab lists `GET /v1/account/charges`. Both tabs MUST use offset/limit pagination and MUST show empty, loading, and retryable error states.
+- `CreditsView` shows the account Credits balance from `GET /v1/account`, a Purchase action, and two history tabs.
+- The Purchase dialog loads supported networks and tokens from `GET /v1/purchase/networks`. The user selects network, token, and amount. Estimated Credits MUST use integer arithmetic matching Crynux AS: `credits = floor(raw * credits_per_token / 10^decimals)` where `raw` is the token amount in base units.
+- Purchase submission MUST require the connected wagmi address to equal `auth.sessionAddress`. The dialog MUST switch the wallet to the selected network `chain_id` when needed, then call wagmi `writeContract` for ERC20 `transfer(receiving_address, raw_amount)` on the selected token contract. `raw_amount` MUST be `amount * 10^decimals` using integer arithmetic. The dialog MUST wait for the transaction receipt before treating the payment as submitted.
+- The WebUI MUST NOT treat a successful transfer as Credits credited. Credits crediting remains owned by the Crynux AS ledger scanner. After transfer success the page MUST poll `GET /v1/account` and `GET /v1/account/purchases` for a short interval and surface toast feedback when the balance updates or when the poll window ends.
+- The Purchases tab lists `GET /v1/account/purchases`. The response field MUST be `purchases`. The Usage tab lists `GET /v1/account/charges`. Both tabs MUST use offset/limit pagination and MUST show empty, loading, and retryable error states.
+- User-facing copy MUST use Purchase terminology. The WebUI MUST NOT present this flow as a deposit.
 
 ### Project management views
 
@@ -258,9 +260,9 @@ optional router.push(redirect)   e.g. { name: 'projects' }
 |------------|--------|------|------|
 | `auth.js` | `login` | `POST /auth/login` | No |
 | `account.js` | `getBalance` | `GET /account` | Yes |
-| `account.js` | `listDeposits` | `GET /account/deposits` | Yes |
+| `account.js` | `listPurchases` | `GET /account/purchases` | Yes |
 | `account.js` | `listCharges` | `GET /account/charges` | Yes |
-| `deposit.js` | `listNetworks` | `GET /deposit/networks` | Yes |
+| `purchase.js` | `listNetworks` | `GET /purchase/networks` | Yes |
 | `projects.js` | `list` | `GET /projects` | Yes |
 | `projects.js` | `create` | `POST /projects` | Yes |
 | `projects.js` | `get` | `GET /projects/:id` | Yes |
@@ -276,7 +278,9 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 
 | Source | Purpose |
 |--------|---------|
-| `src/config.json` → `as_url` | Crynux AS HTTP base URL (bundled with the app) |
+| `src/config.example.json` | Committed template. Local setups MUST copy it to `src/config.json` before running the app. |
+| `src/config.json` → `as_url` | Crynux AS HTTP base URL (bundled with the app). `src/config.json` MUST NOT be committed. |
+| `src/config.json` → `networks` | AppKit/wagmi EVM networks. Each entry MUST include `id`. Optional `rpc_urls` overrides the AppKit preset RPC list. Optional `tx_explorer` (`…/tx`) overrides the AppKit preset block explorer for purchase Tx links; when omitted, the WebUI uses `{blockExplorers.default.url}/tx` from the AppKit preset. If the chain id is not an AppKit preset, the entry MUST also include `name`, `native_currency`, and `rpc_urls`. |
 | `VITE_REOWN_PROJECT_ID` | Reown Cloud project ID; embedded at build time from `.env` / CI |
 
 `.env` is not copied into `dist/`. Vite replaces `import.meta.env.VITE_*` at build time.
@@ -286,11 +290,11 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 ## Wallet integration (`lib/appkit.js`)
 
 - `WagmiAdapter` + `createAppKit` are initialized once in `main.js` via `initAppKit()`.
-- AppKit networks currently include Ethereum mainnet and Base (for wallet UX / WalletConnect). Login itself is chain-agnostic personal sign against Crynux AS.
+- AppKit and wagmi networks MUST be selected from `config.json` → `networks` by chain `id`. For AppKit-known chain ids, the WebUI MUST use the matching `@reown/appkit/networks` preset, including that preset’s default RPC URLs and block explorer, unless `rpc_urls` or `tx_explorer` is set in config. The WebUI MUST NOT hardcode a fixed chain list such as `mainnet`, `base`, or `baseSepolia` in application code. Login itself is chain-agnostic personal sign against Crynux AS.
 - `wagmiConfig` is shared with `WagmiPlugin` and store/composable actions (`getAccount`, `signMessage`, `disconnect`, `watchAccount`).
-- Credits deposits MUST use AppKit Pay from `@reown/appkit-pay`. The Reown Dashboard Payments feature MUST be enabled for `VITE_REOWN_PROJECT_ID`. Local AppKit Pay testing MUST use `http://localhost:3000` (`npm run dev` binds Vite to port 3000).
-- AppKit Pay success confirms the on-chain payment flow result only. The WebUI MUST NOT credit the local balance from the Pay result; Crynux AS deposit scanning remains the authority for Credits.
-- AppKit swaps and onramp remain available in the AppKit modal for funding the user wallet. They MUST NOT be used as the deposit-to-platform path.
+- Credits purchases MUST use a direct ERC20 `transfer` through wagmi (`switchChain` when needed, then `writeContract`, then `waitForTransactionReceipt`). The WebUI MUST NOT open AppKit Pay or any multi-asset payment chooser for purchases.
+- A successful transfer confirms only that the on-chain ERC20 payment was submitted. The WebUI MUST NOT credit the local balance from the transfer result; Crynux AS ledger scanning remains the authority for Credits.
+- AppKit swaps and onramp remain available in the AppKit modal for funding the user wallet. They MUST NOT be used as the Credits purchase path.
 
 ---
 
@@ -299,7 +303,7 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 - API failures map to `ApiError` types in `api/api-error.js`.
 - Connect/auth failures return `{ success: false, reason }` from `useWalletConnect` / `authenticate`; `HomeView` shows user-facing messages for known reasons.
 - Project list/detail and project dialogs map `ApiError` to user-facing messages via `lib/project-ui.js` (`projectErrorMessage`) and offer retry where loading failed.
-- Credits balance, deposit, deposits, and charges map `ApiError` to user-facing messages via `lib/credits-ui.js` (`creditsErrorMessage`) and offer retry where loading failed.
+- Credits balance, purchases, and usage map `ApiError` to user-facing messages via `lib/credits-ui.js` (`creditsErrorMessage`) and offer retry where loading failed.
 - Transient success and failure feedback (for example saving cost level) MUST use toast notifications via `vue-sonner` (`Toaster` in `App.vue`) instead of inline page text.
 - Unexpected API 500/unknown errors are logged via handlers registered in `main.js`.
 - Do not silently swallow errors. User-impacting failures MUST surface clear feedback; otherwise log structured context and propagate.
@@ -311,7 +315,7 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | File | Purpose |
 |------|---------|
 | `lib/appkit.js` | Reown AppKit + wagmi config |
-| `lib/credits-ui.js` | Credits formatting, deposit estimate, paymentAsset builder |
+| `lib/credits-ui.js` | Credits formatting, purchase estimate, transfer helpers |
 | `lib/project-url.js` | Build private LLM base URL from `endpoint_token` |
 | `lib/token-ratio.js` | Builds allowed `token_ratio` display values from `max_token_ratio` |
 | `lib/llm-billing.js` | Credits and execution-time example math for Cost Level UI |
@@ -321,17 +325,18 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `composables/use-wallet-connect.js` | Connect + login + redirect |
 | `api/v1/v1.js` | Axios client and auth header |
 | `api/v1/auth.js` | Login API |
-| `api/v1/account.js` | Balance, deposits, charges |
-| `api/v1/deposit.js` | Deposit networks config |
+| `api/v1/account.js` | Balance, purchases, charges |
+| `api/v1/purchase.js` | Purchase networks config |
 | `api/v1/projects.js` | Project management API |
 | `router/index.js` | Routes and `requiresAuth` guard |
 | `components/layout/DashboardLayout.vue` | Dashboard shell |
-| `components/credits/*` | Deposit dialog |
+| `components/credits/*` | Purchase dialog |
 | `components/projects/*` | Create, API key reveal, reset, rename, and delete dialogs |
 | `components/ui/sonner` | Global toast notifications via `vue-sonner` |
-| `views/CreditsView.vue` | Balance, deposit, deposits and charges history |
+| `views/CreditsView.vue` | Balance, purchase, purchases and usage history |
 | `views/ProjectListView.vue` | Project list and create flow |
 | `views/ProjectDetailView.vue` | Project detail, Cost Level examples, queue position, reset key, delete |
-| `config.json` | `as_url` |
+| `config.example.json` | Committed template for `config.json` |
+| `config.json` | Local `as_url`, `networks` (gitignored) |
 | `main.js` | App bootstrap, plugins, unauthorized handler |
 | `App.vue` | Root router outlet and toast `Toaster` |

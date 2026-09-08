@@ -50,4 +50,4 @@ Example chat cycle:
 - AI draft includes setup commands.
 - User says remove setup commands and keep only flow.
 - Wrong final doc line: This document does not include setup commands.
-- Right final doc line: Run the flow in order: prepare environment, start services, execute deposit and withdraw, then verify results.
+- Right final doc line: Run the flow in order: prepare environment, start services, execute purchase and withdraw, then verify results.

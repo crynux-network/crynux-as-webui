@@ -1,13 +1,9 @@
 import ApiError from '@/api/api-error'
+import config from '@/config.json'
+import { resolveTxExplorerBase } from '@/lib/appkit-networks'
 import { formatCredits } from '@/lib/llm-billing'
 
 const PAGE_SIZE = 20
-
-const DEPOSIT_STATUS = {
-  0: 'Pending',
-  1: 'Processed',
-  2: 'Invalid',
-}
 
 export { PAGE_SIZE }
 
@@ -30,10 +26,6 @@ export function formatCreditsValue(value) {
   return formatCredits(n)
 }
 
-export function formatDepositStatus(status) {
-  return DEPOSIT_STATUS[status] ?? String(status)
-}
-
 export function formatRecordTime(value) {
   if (value == null || value === '') return '—'
   const date = new Date(value)
@@ -48,9 +40,10 @@ export function shortTxHash(hash) {
 
 export function explorerTxUrl(chainId, txHash) {
   if (!txHash) return null
-  if (Number(chainId) === 1) return `https://etherscan.io/tx/${txHash}`
-  if (Number(chainId) === 8453) return `https://basescan.org/tx/${txHash}`
-  return null
+  const entry = config.networks?.find((network) => Number(network.id) === Number(chainId))
+  const base = resolveTxExplorerBase(chainId, entry)
+  if (!base) return null
+  return `${base}/${txHash}`
 }
 
 /**
@@ -58,7 +51,7 @@ export function explorerTxUrl(chainId, txHash) {
  * credits = floor(raw * credits_per_token / 10^decimals)
  * where raw = round(human * 10^decimals)
  */
-export function estimateDepositCredits(humanAmount, decimals, creditsPerToken) {
+export function estimatePurchaseCredits(humanAmount, decimals, creditsPerToken) {
   const text = String(humanAmount ?? '').trim()
   if (!text || !/^\d+(\.\d+)?$/.test(text)) return null
 
@@ -73,23 +66,47 @@ export function estimateDepositCredits(humanAmount, decimals, creditsPerToken) {
   return credits.toString()
 }
 
-export function buildPaymentAsset(network, token) {
-  const symbol = String(token.name || '').toUpperCase()
-  return {
-    network: `eip155:${network.chain_id}`,
-    asset: token.address,
-    metadata: {
-      name: symbol,
-      symbol,
-      decimals: Number(token.decimals),
-    },
-  }
+export function integerTokenToRaw(amount, decimals) {
+  return BigInt(amount) * 10n ** BigInt(decimals)
 }
 
-export function parseHumanAmount(text) {
+export function isUserRejectedError(error) {
+  const code = error?.code ?? error?.cause?.code ?? error?.cause?.cause?.code
+  if (code === 4001 || code === 'ACTION_REJECTED' || code === '4001') return true
+  const name = String(error?.name || error?.cause?.name || '')
+  if (name === 'UserRejectedRequestError') return true
+  const message = String(
+    error?.shortMessage || error?.message || error?.cause?.message || '',
+  ).toLowerCase()
+  return (
+    message.includes('user rejected') ||
+    message.includes('user denied') ||
+    message.includes('rejected the request')
+  )
+}
+
+export function parseIntegerAmount(text) {
   const trimmed = String(text ?? '').trim()
-  if (!trimmed || !/^\d+(\.\d+)?$/.test(trimmed)) return null
-  const n = Number(trimmed)
-  if (!Number.isFinite(n) || n <= 0) return null
-  return n
+  if (!trimmed || !/^\d+$/.test(trimmed)) return null
+  const amount = BigInt(trimmed)
+  if (amount <= 0n) return null
+  return amount
+}
+
+export function formatTokenBalance(rawAmount, decimals) {
+  const scale = 10n ** BigInt(decimals)
+  const raw = BigInt(rawAmount)
+  const whole = raw / scale
+  const frac = raw % scale
+
+  let cents
+  if (decimals <= 2) {
+    cents = Number(frac) * 10 ** (2 - decimals)
+  } else {
+    const drop = 10n ** BigInt(decimals - 2)
+    cents = Number(frac / drop)
+  }
+
+  const wholeText = whole.toLocaleString('en-US')
+  return `${wholeText}.${String(cents).padStart(2, '0')}`
 }

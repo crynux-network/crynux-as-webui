@@ -6,8 +6,8 @@ class AccountAPI extends BaseAPI {
     return v1.get('/account')
   }
 
-  listDeposits({ offset = 0, limit = 20 } = {}) {
-    return v1.get('/account/deposits', {
+  listPurchases({ offset = 0, limit = 20 } = {}) {
+    return v1.get('/account/purchases', {
       params: { offset, limit },
     })
   }
