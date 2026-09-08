@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  ExternalLink,
   MoreHorizontal,
   Pencil,
   Trash2,
@@ -21,6 +22,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import ApiKeyRevealDialog from '@/components/projects/ApiKeyRevealDialog.vue'
 import DeleteProjectDialog from '@/components/projects/DeleteProjectDialog.vue'
 import RenameProjectDialog from '@/components/projects/RenameProjectDialog.vue'
@@ -28,7 +30,13 @@ import ResetApiKeyDialog from '@/components/projects/ResetApiKeyDialog.vue'
 import ApiError from '@/api/api-error'
 import { llmAPI } from '@/api/v1/llm'
 import { projectsAPI } from '@/api/v1/projects'
-import { projectLlmBaseUrl } from '@/lib/project-url'
+import {
+  PROJECT_API_DOCS,
+  projectChatCompletionsUrl,
+  projectLlmBaseUrl,
+  projectRawTaskUrl,
+  projectResponsesUrl,
+} from '@/lib/project-url'
 import {
   DEFAULT_MAX_TOKEN_RATIO,
   buildTokenRatioOptions,
@@ -76,8 +84,8 @@ const pricingPromptTokens = ref(1_000_000)
 const pricingCompletionTokens = ref(1_000_000)
 const timePromptTokens = ref(512)
 const timeCompletionTokens = ref(2048)
-const urlCopied = ref(false)
-let urlCopiedTimer = null
+const copiedField = ref('')
+let copiedFieldTimer = null
 let ratioSaveTimer = null
 let syncingSlider = false
 const COST_LEVEL_TOAST_ID = 'cost-level-save'
@@ -89,13 +97,43 @@ const deleteOpen = ref(false)
 const resetOpen = ref(false)
 const renameOpen = ref(false)
 const costLevelOpen = ref(false)
+const apiEndpointsOpen = ref(false)
+const apiGuideTab = ref('chat_completions')
 
 const projectId = computed(() => route.params.id)
+const endpointToken = computed(() => project.value?.endpoint_token || '')
 const llmBaseUrl = computed(() =>
-  project.value?.endpoint_token
-    ? projectLlmBaseUrl(project.value.endpoint_token)
-    : '',
+  endpointToken.value ? projectLlmBaseUrl(endpointToken.value) : '',
 )
+const apiGuideItems = computed(() => {
+  const token = endpointToken.value
+  return [
+    {
+      id: 'chat_completions',
+      label: 'Chat Completions',
+      url: token ? projectChatCompletionsUrl(token) : '',
+      docsUrl: PROJECT_API_DOCS.chat_completions,
+      description:
+        'OpenAI Chat Completions API. Use the OpenAI SDK with this project Base URL, or POST directly to this endpoint with the project API key.',
+    },
+    {
+      id: 'responses',
+      label: 'Responses',
+      url: token ? projectResponsesUrl(token) : '',
+      docsUrl: PROJECT_API_DOCS.responses,
+      description:
+        'OpenAI Responses API. Use it when you need background execution or response polling instead of a single chat completion call.',
+    },
+    {
+      id: 'raw_task',
+      label: 'Raw Task',
+      url: token ? projectRawTaskUrl(token) : '',
+      docsUrl: PROJECT_API_DOCS.raw_task,
+      description:
+        'Crynux raw task API. Submit task parameters directly for supported task types such as text-to-image, text-to-text, and fine-tuning, without the OpenAI request format.',
+    },
+  ]
+})
 const currentTokenRatio = computed(() =>
   sliderIndexToTokenRatio(sliderIndex.value[0], tokenRatioOptions.value),
 )
@@ -280,18 +318,18 @@ function applyProject(data) {
   setSliderFromRatio(data.token_ratio)
 }
 
-async function onCopyUrl() {
-  if (!llmBaseUrl.value) return
+async function onCopyField(field, value) {
+  if (!value) return
   try {
-    await copyText(llmBaseUrl.value)
-    urlCopied.value = true
-    if (urlCopiedTimer) clearTimeout(urlCopiedTimer)
-    urlCopiedTimer = setTimeout(() => {
-      urlCopied.value = false
-      urlCopiedTimer = null
+    await copyText(value)
+    copiedField.value = field
+    if (copiedFieldTimer) clearTimeout(copiedFieldTimer)
+    copiedFieldTimer = setTimeout(() => {
+      copiedField.value = ''
+      copiedFieldTimer = null
     }, 2000)
   } catch (e) {
-    console.error('Failed to copy LLM base URL', e)
+    console.error('Failed to copy URL', e)
   }
 }
 
@@ -370,9 +408,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearRatioSaveTimer()
-  if (urlCopiedTimer) {
-    clearTimeout(urlCopiedTimer)
-    urlCopiedTimer = null
+  if (copiedFieldTimer) {
+    clearTimeout(copiedFieldTimer)
+    copiedFieldTimer = null
   }
 })
 </script>
@@ -402,7 +440,8 @@ onUnmounted(() => {
               {{ project.name }}
             </h1>
             <p class="mt-1 text-sm text-muted-foreground">
-              Private OpenAI-compatible LLM endpoint for this project.
+              Private project endpoint. Use the Base URL and API key below with
+              the APIs listed in this section.
             </p>
           </div>
 
@@ -431,14 +470,16 @@ onUnmounted(() => {
           </DropdownMenu>
         </div>
 
-        <div class="grid gap-5">
-          <div class="grid gap-2">
+        <div
+          class="grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,13rem)] sm:items-stretch"
+        >
+          <div class="grid min-w-0 gap-2">
             <Label class="text-muted-foreground">Base URL</Label>
-            <div class="flex w-fit max-w-md items-center gap-2">
+            <div class="flex min-w-0 items-center gap-2">
               <Input
                 :model-value="llmBaseUrl"
                 readonly
-                class="min-w-0 w-80 truncate bg-background font-mono text-xs"
+                class="min-w-0 flex-1 truncate bg-background font-mono text-xs"
                 @focus="onSelectUrl"
                 @click="onSelectUrl"
               />
@@ -446,27 +487,126 @@ onUnmounted(() => {
                 variant="outline"
                 size="icon"
                 class="shrink-0 bg-background"
-                :aria-label="urlCopied ? 'Copied' : 'Copy base URL'"
-                @click="onCopyUrl"
+                :aria-label="
+                  copiedField === 'base' ? 'Copied' : 'Copy base URL'
+                "
+                @click="onCopyField('base', llmBaseUrl)"
               >
-                <Check v-if="urlCopied" class="size-4" />
+                <Check v-if="copiedField === 'base'" class="size-4" />
                 <Copy v-else class="size-4" />
               </Button>
             </div>
           </div>
 
-          <div class="grid gap-2">
-            <Label class="text-muted-foreground">API key</Label>
-            <div>
-              <Button
-                variant="outline"
-                size="sm"
-                class="h-8 bg-background"
-                @click="resetOpen = true"
-              >
-                Reset
-              </Button>
+          <div
+            class="grid gap-2 border-t border-border pt-5 sm:border-l-2 sm:border-t-0 sm:pl-6 sm:pt-0"
+          >
+            <Label class="text-muted-foreground">API Key</Label>
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-8 w-fit bg-background"
+              @click="resetOpen = true"
+            >
+              Reset
+            </Button>
+          </div>
+        </div>
+
+        <div class="mt-6 border-t border-border pt-5">
+          <button
+            type="button"
+            class="flex w-full items-center justify-between gap-3 text-left"
+            :aria-expanded="apiEndpointsOpen"
+            :aria-label="
+              apiEndpointsOpen ? 'Hide API endpoints' : 'Show API endpoints'
+            "
+            @click="apiEndpointsOpen = !apiEndpointsOpen"
+          >
+            <div class="min-w-0">
+              <h2 class="text-sm font-semibold tracking-tight text-foreground">
+                API endpoints
+              </h2>
+              <p class="mt-1 text-sm text-muted-foreground">
+                Full endpoint URLs for the APIs available on this project.
+              </p>
             </div>
+            <ChevronDown
+              class="size-5 shrink-0 text-muted-foreground transition-transform"
+              :class="apiEndpointsOpen ? 'rotate-180' : 'rotate-0'"
+            />
+          </button>
+
+          <div v-if="apiEndpointsOpen" class="mt-6">
+            <Tabs v-model="apiGuideTab" class="flex w-full flex-col gap-4">
+              <TabsList variant="line">
+                <TabsTrigger
+                  v-for="item in apiGuideItems"
+                  :key="item.id"
+                  :value="item.id"
+                  class="flex-none px-3"
+                >
+                  {{ item.label }}
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent
+                v-for="item in apiGuideItems"
+                :key="item.id"
+                :value="item.id"
+                class="mt-0"
+              >
+                <div class="rounded-lg border border-border bg-background p-4">
+                  <div class="grid gap-2">
+                    <Label class="text-muted-foreground">Endpoint URL</Label>
+                    <div class="flex min-w-0 items-center gap-2">
+                      <Input
+                        :model-value="item.url"
+                        readonly
+                        class="min-w-0 flex-1 truncate font-mono text-xs"
+                        @focus="onSelectUrl"
+                        @click="onSelectUrl"
+                      />
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        class="shrink-0"
+                        :aria-label="
+                          copiedField === item.id
+                            ? 'Copied'
+                            : `Copy ${item.label} URL`
+                        "
+                        @click="onCopyField(item.id, item.url)"
+                      >
+                        <Check v-if="copiedField === item.id" class="size-4" />
+                        <Copy v-else class="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <p class="mt-4 text-sm leading-relaxed text-muted-foreground">
+                    {{ item.description }}
+                  </p>
+
+                  <a
+                    v-if="item.docsUrl"
+                    :href="item.docsUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                  >
+                    View documentation
+                    <ExternalLink class="size-3.5" />
+                  </a>
+                  <p
+                    v-else
+                    class="mt-4 text-sm text-muted-foreground"
+                  >
+                    Documentation will be available soon.
+                  </p>
+                </div>
+              </TabsContent>
+            </Tabs>
           </div>
         </div>
       </section>
