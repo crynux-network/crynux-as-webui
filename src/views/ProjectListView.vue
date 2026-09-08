@@ -6,13 +6,9 @@ import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import CreateProjectDialog from '@/components/projects/CreateProjectDialog.vue'
 import ApiKeyRevealDialog from '@/components/projects/ApiKeyRevealDialog.vue'
+import ProjectListItem from '@/components/projects/ProjectListItem.vue'
 import { projectsAPI } from '@/api/v1/projects'
-import { formatTokenRatio } from '@/lib/token-ratio'
-import {
-  formatProjectCreatedAt,
-  projectErrorMessage,
-  projectStatusLabel,
-} from '@/lib/project-ui'
+import { projectErrorMessage } from '@/lib/project-ui'
 
 const router = useRouter()
 
@@ -90,45 +86,13 @@ onMounted(() => {
       </Button>
     </div>
 
-    <div
-      v-else-if="projects.length > 0"
-      class="overflow-hidden rounded-lg border border-border"
-    >
-      <table class="w-full text-left text-sm">
-        <thead class="border-b border-border bg-muted/40 text-muted-foreground">
-          <tr>
-            <th class="px-4 py-2.5 font-medium">Name</th>
-            <th class="px-4 py-2.5 font-medium">API key</th>
-            <th class="px-4 py-2.5 font-medium">Cost level</th>
-            <th class="px-4 py-2.5 font-medium">Status</th>
-            <th class="px-4 py-2.5 font-medium">Created</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="project in projects"
-            :key="project.id"
-            class="cursor-pointer border-b border-border last:border-b-0 hover:bg-muted/40"
-            @click="openProject(project)"
-          >
-            <td class="px-4 py-3 font-medium text-foreground">
-              {{ project.name }}
-            </td>
-            <td class="px-4 py-3 font-mono text-xs text-muted-foreground">
-              {{ project.api_key_prefix }}…
-            </td>
-            <td class="px-4 py-3 text-muted-foreground">
-              {{ formatTokenRatio(project.token_ratio) }}×
-            </td>
-            <td class="px-4 py-3 text-muted-foreground">
-              {{ projectStatusLabel(project.status) }}
-            </td>
-            <td class="px-4 py-3 text-muted-foreground">
-              {{ formatProjectCreatedAt(project.created_at) }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <div v-else-if="projects.length > 0" class="flex flex-col gap-3">
+      <ProjectListItem
+        v-for="project in projects"
+        :key="project.id"
+        :project="project"
+        @open="openProject"
+      />
     </div>
 
     <CreateProjectDialog v-model:open="createOpen" @created="onCreated" />

@@ -471,7 +471,7 @@ onUnmounted(() => {
         </div>
 
         <div
-          class="grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,13rem)] sm:items-stretch"
+          class="grid gap-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
         >
           <div class="grid min-w-0 gap-2">
             <Label class="text-muted-foreground">Base URL</Label>
@@ -499,16 +499,15 @@ onUnmounted(() => {
           </div>
 
           <div
-            class="grid gap-2 border-t border-border pt-5 sm:border-l-2 sm:border-t-0 sm:pl-6 sm:pt-0"
+            class="border-t border-border pt-5 sm:border-l-2 sm:border-t-0 sm:pl-6 sm:pt-0"
           >
-            <Label class="text-muted-foreground">API Key</Label>
             <Button
               variant="outline"
               size="sm"
-              class="h-8 w-fit bg-background"
+              class="h-8 bg-background"
               @click="resetOpen = true"
             >
-              Reset
+              Reset API Key
             </Button>
           </div>
         </div>
