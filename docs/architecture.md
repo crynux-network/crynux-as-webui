@@ -82,7 +82,7 @@ src/
 │   ├── HomeView.vue           # Public home + Connect
 │   ├── CreditsView.vue        # Balance, purchase, purchases/usage history
 │   ├── ProjectListView.vue    # Dashboard project list + create
-│   └── ProjectDetailView.vue  # Project detail, edit, reset key, delete
+│   └── ProjectDetailView.vue  # Project detail, usage charts, recent requests
 ├── assets/
 │   └── index.css              # Tailwind + theme CSS variables
 ├── config.example.json        # committed template for local config.json
@@ -140,7 +140,7 @@ src/
 ### Project management views
 
 - `ProjectListView` loads `GET /v1/projects`, creates projects via `POST /v1/projects`, and opens `ApiKeyRevealDialog` when the create response includes a one-time plaintext `api_key`.
-- `ProjectDetailView` presents two primary sections: a muted LLM API panel (base URL, API key prefix, reset key; rename/delete via overflow menu) and a Cost Level panel. The cost panel uses a cost-level slider (API field `token_ratio`) that saves after 3 seconds without further changes via `PUT /v1/projects/:id`. The slider options MUST be `0.1` through `1.0` step `0.1`, then `2` through `max_token_ratio` step `1`, using `max_token_ratio` from `GET /v1/llm/billing_config`. When `GET /v1/llm/billing_config` provides live queue bounds, a separate range bar under the cost level slider MUST show Min and Max markers for `lowest_priority_gwei / reference_priority_gwei` and `highest_priority_gwei / reference_priority_gwei`, snapped to allowed cost levels and clamped to the bar ends. The blue segment MUST stay strictly between the Min and Max markers; segments outside that interval MUST be red when at least one bound falls inside the allowed cost level range. When both bounds fall outside on the same side, the entire bar MUST be red. The panel MUST show two example tables built from `GET /v1/llm/pricing_examples` plus `billing_config`: a `Credits per 1M tokens` table with `Model`, `1M Input`, and `1M Output` columns for separate 1M-token unit prices without `constant_seconds`, scaled by cost level; and an execution-time table with `Model`, `Input`, `Output`, and `Seconds` for a typical call of `time_prompt_tokens=512` input and `time_completion_tokens=2048` output, including `constant_seconds`, not scaled by cost level. Cost-level save feedback uses a single replaceable toast. The page leaves space below for future usage stats charts.
+- `ProjectDetailView` presents two primary sections: a muted LLM API panel (base URL, API key prefix, reset key; rename/delete via overflow menu) and a Cost Level panel. The cost panel uses a cost-level slider (API field `token_ratio`) that saves after 3 seconds without further changes via `PUT /v1/projects/:id`. The slider options MUST be `0.1` through `1.0` step `0.1`, then `2` through `max_token_ratio` step `1`, using `max_token_ratio` from `GET /v1/llm/billing_config`. When `GET /v1/llm/billing_config` provides live queue bounds, a separate range bar under the cost level slider MUST show Min and Max markers for `lowest_priority_gwei / reference_priority_gwei` and `highest_priority_gwei / reference_priority_gwei`, snapped to allowed cost levels and clamped to the bar ends. The blue segment MUST stay strictly between the Min and Max markers; segments outside that interval MUST be red when at least one bound falls inside the allowed cost level range. When both bounds fall outside on the same side, the entire bar MUST be red. The panel MUST show two example tables built from `GET /v1/llm/pricing_examples` plus `billing_config`: a `Credits per 1M tokens` table with `Model`, `1M Input`, and `1M Output` columns for separate 1M-token unit prices without `constant_seconds`, scaled by cost level; and an execution-time table with `Model`, `Input`, `Output`, and `Seconds` for a typical call of `time_prompt_tokens=512` input and `time_completion_tokens=2048` output, including `constant_seconds`, not scaled by cost level. Cost-level save feedback uses a single replaceable toast. Below Cost Level, `ProjectUsageSection` MUST show project usage charts from `GET /v1/projects/:id/stats`, `GET /v1/projects/:id/stats/completion-duration`, and `GET /v1/projects/:id/stats/models`. Below Usage, `ProjectRecentRequestsSection` MUST list recent finished calls from `GET /v1/projects/:id/requests` with columns Time, Status, Cost Level, Model, VRAM, Input, Output, Duration, and Credits. Duration MUST display `duration_ms / 1000` seconds via `formatSeconds` with an `s` suffix. The requests list MUST NOT send `limit` or `offset`. Load failures for Usage and Recent Requests MUST use `vue-sonner` toast messages that tell the user to try again later.
 - Project data is page state loaded through `projectsAPI`. There is no Pinia project store.
 - Plaintext API keys MUST NOT be persisted in local storage or route state after the reveal dialog closes.
 
@@ -327,7 +327,7 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `api/v1/auth.js` | Login API |
 | `api/v1/account.js` | Balance, purchases, charges |
 | `api/v1/purchase.js` | Purchase networks config |
-| `api/v1/projects.js` | Project management API |
+| `api/v1/projects.js` | Project management, stats, and recent requests API |
 | `router/index.js` | Routes and `requiresAuth` guard |
 | `components/layout/DashboardLayout.vue` | Dashboard shell |
 | `components/credits/*` | Purchase dialog |
@@ -335,7 +335,9 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `components/ui/sonner` | Global toast notifications via `vue-sonner` |
 | `views/CreditsView.vue` | Balance, purchase, purchases and usage history |
 | `views/ProjectListView.vue` | Project list and create flow |
-| `views/ProjectDetailView.vue` | Project detail, Cost Level examples, queue position, reset key, delete |
+| `views/ProjectDetailView.vue` | Project detail, Cost Level, Usage charts, Recent Requests, reset key, delete |
+| `components/stats/ProjectUsageSection.vue` | Project usage charts and model top table |
+| `components/stats/ProjectRecentRequestsSection.vue` | Project recent finished LLM call list |
 | `config.example.json` | Committed template for `config.json` |
 | `config.json` | Local `as_url`, `networks` (gitignored) |
 | `main.js` | App bootstrap, plugins, unauthorized handler |

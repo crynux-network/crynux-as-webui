@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import CreateProjectDialog from '@/components/projects/CreateProjectDialog.vue'
 import ApiKeyRevealDialog from '@/components/projects/ApiKeyRevealDialog.vue'
 import ProjectListItem from '@/components/projects/ProjectListItem.vue'
+import AccountUsageStats from '@/components/stats/AccountUsageStats.vue'
 import { projectsAPI } from '@/api/v1/projects'
 import { projectErrorMessage } from '@/lib/project-ui'
 
@@ -57,17 +58,14 @@ onMounted(() => {
 <template>
   <div class="w-full">
     <div class="mb-6 flex items-center justify-between gap-4">
-      <div>
-        <h1 class="text-2xl font-semibold tracking-tight">Projects</h1>
-        <p class="mt-1 text-sm text-muted-foreground">
-          Manage private LLM endpoints and API keys for your account.
-        </p>
-      </div>
+      <h1 class="text-2xl font-semibold tracking-tight">Projects</h1>
       <Button size="sm" class="gap-1.5" @click="createOpen = true">
         <Plus class="size-4" />
         Create project
       </Button>
     </div>
+
+    <AccountUsageStats />
 
     <div
       v-if="loading && projects.length === 0"

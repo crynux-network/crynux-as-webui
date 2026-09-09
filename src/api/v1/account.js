@@ -17,6 +17,12 @@ class AccountAPI extends BaseAPI {
       params: { offset, limit },
     })
   }
+
+  getStats(range = '1d') {
+    return v1.get('/account/stats', {
+      params: { range },
+    })
+  }
 }
 
 export const accountAPI = new AccountAPI()

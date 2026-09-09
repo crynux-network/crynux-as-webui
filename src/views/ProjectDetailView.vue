@@ -27,6 +27,8 @@ import ApiKeyRevealDialog from '@/components/projects/ApiKeyRevealDialog.vue'
 import DeleteProjectDialog from '@/components/projects/DeleteProjectDialog.vue'
 import RenameProjectDialog from '@/components/projects/RenameProjectDialog.vue'
 import ResetApiKeyDialog from '@/components/projects/ResetApiKeyDialog.vue'
+import ProjectUsageSection from '@/components/stats/ProjectUsageSection.vue'
+import ProjectRecentRequestsSection from '@/components/stats/ProjectRecentRequestsSection.vue'
 import ApiError from '@/api/api-error'
 import { llmAPI } from '@/api/v1/llm'
 import { projectsAPI } from '@/api/v1/projects'
@@ -810,6 +812,15 @@ onUnmounted(() => {
           </div>
         </div>
       </section>
+
+      <ProjectUsageSection
+        v-if="project?.id"
+        :project-id="project.id"
+      />
+      <ProjectRecentRequestsSection
+        v-if="project?.id"
+        :project-id="project.id"
+      />
     </template>
 
     <RenameProjectDialog
