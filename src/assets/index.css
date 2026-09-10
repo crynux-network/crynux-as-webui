@@ -126,7 +126,7 @@
   html,
   body,
   #app {
-    @apply h-full;
+    @apply h-full overflow-hidden;
   }
   body {
     @apply bg-background text-foreground font-sans antialiased;

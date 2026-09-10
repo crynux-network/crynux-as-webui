@@ -24,7 +24,7 @@ async function signOut() {
 </script>
 
 <template>
-  <div class="flex h-screen w-full overflow-hidden bg-background">
+  <div class="flex h-full w-full overflow-hidden bg-background">
     <aside
       class="flex h-full w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
     >
@@ -73,7 +73,7 @@ async function signOut() {
     </aside>
 
     <main class="min-h-0 min-w-0 flex-1 overflow-y-auto">
-      <div class="h-full w-full px-6 py-8">
+      <div class="w-full px-6 py-8">
         <RouterView />
       </div>
     </main>

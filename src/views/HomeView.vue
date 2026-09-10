@@ -41,7 +41,7 @@ async function onConnect() {
 </script>
 
 <template>
-  <div class="flex min-h-screen flex-col items-center justify-center bg-background px-6">
+  <div class="flex h-full flex-col items-center justify-center bg-background px-6">
     <div class="mx-auto w-full max-w-xl text-center">
       <p class="mb-2 text-sm font-medium uppercase tracking-widest text-muted-foreground">
         Crynux AI Services
