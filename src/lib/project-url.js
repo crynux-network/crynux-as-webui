@@ -20,7 +20,8 @@ export function projectRawTaskUrl(endpointToken) {
 export const PROJECT_API_DOCS = {
   chat_completions:
     'https://docs.crynux.io/application-development/how-to-run-llm-using-crynux-network',
-  responses: null,
+  responses:
+    'https://docs.crynux.io/application-development/how-to-run-llm-using-crynux-network/responses-api',
   raw_task:
     'https://docs.crynux.io/application-development/execute-tasks',
 }
