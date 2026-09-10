@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useElementSize } from '@vueuse/core'
+import { formatExactNumber, formatStatsAxisNumber } from '@/lib/usage-stats-ui'
 
 const props = defineProps({
   buckets: {
@@ -15,6 +16,7 @@ const props = defineProps({
 
 const root = ref(null)
 const { width: containerWidth } = useElementSize(root)
+const hoverIndex = ref(null)
 
 const emptyYMax = 10
 const padding = { top: 12, right: 16, bottom: 52, left: 44 }
@@ -83,6 +85,8 @@ const chart = computed(() => {
       y,
       width: barW,
       height: barH,
+      hitY: padding.top,
+      hitHeight: innerH,
       label: bucket.bucket_label || '',
       value,
       labelX: x + barW / 2,
@@ -93,7 +97,7 @@ const chart = computed(() => {
   const yTicks = integerTicks(max)
   const yLabels = yTicks.map((value) => ({
     y: padding.top + innerH - (value / max) * innerH,
-    text: String(value),
+    text: formatStatsAxisNumber(value),
   }))
 
   const xGrid = bars.map((bar) => bar.x + bar.width / 2)
@@ -114,13 +118,50 @@ const chart = computed(() => {
     },
   }
 })
+
+const hover = computed(() => {
+  const index = hoverIndex.value
+  if (index == null || index < 0 || index >= chart.value.bars.length) {
+    return null
+  }
+  const bar = chart.value.bars[index]
+  return {
+    index,
+    bar,
+    title: bar.label,
+    text: formatExactNumber(bar.value),
+  }
+})
+
+function onBarEnter(index) {
+  hoverIndex.value = index
+}
+
+function onPointerLeave() {
+  hoverIndex.value = null
+}
+
+const tooltipStyle = computed(() => {
+  if (!hover.value || !root.value || chart.value.width <= 0) return null
+  const rectWidth = root.value.getBoundingClientRect().width || chart.value.width
+  const scale = rectWidth / chart.value.width
+  const bar = hover.value.bar
+  const leftPx = (bar.x + bar.width / 2) * scale
+  const placeLeft = leftPx > rectWidth * 0.55
+  return {
+    left: `${leftPx}px`,
+    top: `${padding.top * scale}px`,
+    transform: placeLeft ? 'translate(-100%, 0) translateX(-8px)' : 'translateX(8px)',
+  }
+})
 </script>
 
 <template>
   <div
     ref="root"
-    class="w-full min-w-0"
+    class="relative w-full min-w-0"
     :style="{ minHeight: `${chart.height}px` }"
+    @pointerleave="onPointerLeave"
   >
     <svg
       v-if="chart.width > 0"
@@ -166,17 +207,26 @@ const chart = computed(() => {
         stroke-width="1"
       />
       <rect
-        v-for="bar in chart.bars"
+        v-for="(bar, idx) in chart.bars"
         :key="`bar-${bar.key}`"
         :x="bar.x"
         :y="bar.y"
         :width="bar.width"
         :height="bar.height"
         class="fill-primary"
-        opacity="0.8"
-      >
-        <title>{{ bar.label }}: {{ bar.value }}</title>
-      </rect>
+        :opacity="hover && hover.index === idx ? 1 : 0.8"
+      />
+      <rect
+        v-for="(bar, idx) in chart.bars"
+        :key="`hit-${bar.key}`"
+        :x="bar.x"
+        :y="bar.hitY"
+        :width="bar.width"
+        :height="bar.hitHeight"
+        fill="transparent"
+        class="cursor-default"
+        @pointerenter="onBarEnter(idx)"
+      />
       <g
         v-for="label in chart.yLabels"
         :key="`y-${label.y}-${label.text}`"
@@ -205,5 +255,19 @@ const chart = computed(() => {
         </text>
       </g>
     </svg>
+
+    <div
+      v-if="hover && tooltipStyle"
+      class="pointer-events-none absolute z-10 min-w-[100px] rounded-md border border-border bg-popover px-2.5 py-2 text-xs text-popover-foreground shadow-md"
+      :style="tooltipStyle"
+    >
+      <div class="mb-1 font-medium text-foreground">
+        {{ hover.title }}
+      </div>
+      <div class="flex items-center justify-between gap-4">
+        <span class="text-muted-foreground">Requests</span>
+        <span class="tabular-nums text-foreground">{{ hover.text }}</span>
+      </div>
+    </div>
   </div>
 </template>

@@ -17,6 +17,7 @@ import {
   formatExactCredits,
   formatExactNumber,
   formatStatsAxisTime,
+  formatStatsTooltipTime,
   formatSuccessRate,
   statsSeriesPointCount,
 } from '@/lib/usage-stats-ui'
@@ -29,61 +30,126 @@ const props = defineProps({
   },
 })
 
-const chartRange = ref('1d')
+const requestRange = ref('1d')
+const tokenRange = ref('1d')
+const creditsRange = ref('1d')
 const durationRange = ref('1d')
 const modelRange = ref('1d')
 
-const loadingCharts = ref(false)
+const statsByRange = ref({})
+const loadingStatsRanges = ref({})
 const loadingDuration = ref(false)
 const loadingModels = ref(false)
 
-const chartStats = ref(null)
 const durationStats = ref(null)
 const modelStats = ref(null)
 
-const requestPoints = computed(() =>
-  (chartStats.value?.request_series || []).map((point) => ({
+function mapRequestPoints(series, range) {
+  return (series || []).map((point) => ({
     timestamp: point.timestamp,
     success_count: Number(point.success_count || 0),
     failure_count: Number(point.failure_count || 0),
     complete: Boolean(point.complete),
-    label: formatStatsAxisTime(point.timestamp, chartRange.value),
-  })),
-)
+    label: formatStatsAxisTime(point.timestamp, range),
+    tooltipLabel: formatStatsTooltipTime(point.timestamp, range),
+  }))
+}
 
-const creditsPoints = computed(() =>
-  (chartStats.value?.credits_series || []).map((point) => ({
+function mapCreditsPoints(series, range) {
+  return (series || []).map((point) => ({
     timestamp: point.timestamp,
     value: Number(point.value || 0),
     complete: Boolean(point.complete),
-    label: formatStatsAxisTime(point.timestamp, chartRange.value),
-  })),
-)
+    label: formatStatsAxisTime(point.timestamp, range),
+    tooltipLabel: formatStatsTooltipTime(point.timestamp, range),
+  }))
+}
 
-const tokenPoints = computed(() =>
-  (chartStats.value?.token_series || []).map((point) => ({
+function mapTokenPoints(series, range) {
+  return (series || []).map((point) => ({
     timestamp: point.timestamp,
     prompt_tokens: Number(point.prompt_tokens || 0),
     completion_tokens: Number(point.completion_tokens || 0),
     complete: Boolean(point.complete),
-    label: formatStatsAxisTime(point.timestamp, chartRange.value),
-  })),
+    label: formatStatsAxisTime(point.timestamp, range),
+    tooltipLabel: formatStatsTooltipTime(point.timestamp, range),
+  }))
+}
+
+const requestPoints = computed(() =>
+  mapRequestPoints(
+    statsByRange.value[requestRange.value]?.request_series,
+    requestRange.value,
+  ),
 )
 
-const seriesPointCount = computed(() => statsSeriesPointCount(chartRange.value))
+const tokenPoints = computed(() =>
+  mapTokenPoints(
+    statsByRange.value[tokenRange.value]?.token_series,
+    tokenRange.value,
+  ),
+)
 
-async function loadCharts() {
-  loadingCharts.value = true
+const creditsPoints = computed(() =>
+  mapCreditsPoints(
+    statsByRange.value[creditsRange.value]?.credits_series,
+    creditsRange.value,
+  ),
+)
+
+const requestSeriesPointCount = computed(() =>
+  statsSeriesPointCount(requestRange.value),
+)
+const tokenSeriesPointCount = computed(() =>
+  statsSeriesPointCount(tokenRange.value),
+)
+const creditsSeriesPointCount = computed(() =>
+  statsSeriesPointCount(creditsRange.value),
+)
+
+const loadingRequest = computed(
+  () =>
+    Boolean(loadingStatsRanges.value[requestRange.value]) &&
+    !statsByRange.value[requestRange.value],
+)
+const loadingToken = computed(
+  () =>
+    Boolean(loadingStatsRanges.value[tokenRange.value]) &&
+    !statsByRange.value[tokenRange.value],
+)
+const loadingCredits = computed(
+  () =>
+    Boolean(loadingStatsRanges.value[creditsRange.value]) &&
+    !statsByRange.value[creditsRange.value],
+)
+
+async function loadStatsForRange(range) {
+  loadingStatsRanges.value = {
+    ...loadingStatsRanges.value,
+    [range]: true,
+  }
   try {
-    chartStats.value = await projectsAPI.getStats(props.projectId, chartRange.value)
+    const data = await projectsAPI.getStats(props.projectId, range)
+    statsByRange.value = {
+      ...statsByRange.value,
+      [range]: data,
+    }
   } catch (e) {
     console.error('Failed to load project chart stats', e)
     toast.error(
       projectErrorMessage(e, 'Could not load usage stats. Please try again later.'),
     )
   } finally {
-    loadingCharts.value = false
+    loadingStatsRanges.value = {
+      ...loadingStatsRanges.value,
+      [range]: false,
+    }
   }
+}
+
+async function ensureStatsRanges(ranges) {
+  const unique = [...new Set(ranges)]
+  await Promise.all(unique.map((range) => loadStatsForRange(range)))
 }
 
 async function loadDuration() {
@@ -117,20 +183,37 @@ async function loadModels() {
   }
 }
 
-watch(chartRange, loadCharts)
+watch(requestRange, (range) => {
+  loadStatsForRange(range)
+})
+watch(tokenRange, (range) => {
+  loadStatsForRange(range)
+})
+watch(creditsRange, (range) => {
+  loadStatsForRange(range)
+})
 watch(durationRange, loadDuration)
 watch(modelRange, loadModels)
 watch(
   () => props.projectId,
   () => {
-    loadCharts()
+    statsByRange.value = {}
+    ensureStatsRanges([
+      requestRange.value,
+      tokenRange.value,
+      creditsRange.value,
+    ])
     loadDuration()
     loadModels()
   },
 )
 
 onMounted(() => {
-  loadCharts()
+  ensureStatsRanges([
+    requestRange.value,
+    tokenRange.value,
+    creditsRange.value,
+  ])
   loadDuration()
   loadModels()
 })
@@ -138,53 +221,91 @@ onMounted(() => {
 
 <template>
   <section class="mb-8 rounded-xl border border-border px-5 py-5">
-    <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div class="mb-4">
       <h2 class="text-base font-semibold tracking-tight">Usage</h2>
-      <Select v-model="chartRange">
-        <SelectTrigger class="w-[140px]">
-          <SelectValue placeholder="Range" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="1d">1 day</SelectItem>
-          <SelectItem value="1m">1 month</SelectItem>
-        </SelectContent>
-      </Select>
     </div>
 
-    <div
-      v-if="loadingCharts && !chartStats"
-      class="py-8 text-center text-sm text-muted-foreground"
-    >
-      Loading usage…
-    </div>
-
-    <template v-else>
-      <div class="grid gap-4 lg:grid-cols-2">
-        <div class="min-w-0 rounded-lg border border-border bg-muted/30 px-4 pt-4 pb-2">
-          <div class="mb-2 text-sm font-medium">Requests</div>
-          <UsageLineChart
-            :points="requestPoints"
-            :x-count="seriesPointCount"
-            :series="[
-              { key: 'success_count', color: 'hsl(var(--primary))', fill: 'hsl(var(--primary))' },
-              { key: 'failure_count', color: 'hsl(var(--destructive))', fill: 'hsl(var(--destructive))' },
-            ]"
-          />
+    <div class="grid gap-4 lg:grid-cols-2">
+      <div class="min-w-0 rounded-lg border border-border bg-muted/30 px-4 pt-4 pb-2">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div class="text-sm font-medium">Requests</div>
+          <Select v-model="requestRange">
+            <SelectTrigger class="w-[140px]">
+              <SelectValue placeholder="Range" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1d">1 day</SelectItem>
+              <SelectItem value="1m">1 month</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-
-        <div class="min-w-0 rounded-lg border border-border bg-muted/30 px-4 pt-4 pb-2">
-          <div class="mb-2 text-sm font-medium">Tokens</div>
-          <UsageLineChart
-            :points="tokenPoints"
-            :x-count="seriesPointCount"
-            :series="[
-              { key: 'prompt_tokens', color: 'hsl(var(--primary))', fill: 'hsl(var(--primary))' },
-              { key: 'completion_tokens', color: 'hsl(210 40% 50%)', fill: 'hsl(210 40% 50%)' },
-            ]"
-          />
+        <div
+          v-if="loadingRequest"
+          class="py-8 text-center text-sm text-muted-foreground"
+        >
+          Loading…
         </div>
+        <UsageLineChart
+          v-else
+          :points="requestPoints"
+          :x-count="requestSeriesPointCount"
+          :series="[
+            {
+              key: 'failure_count',
+              label: 'Failure',
+              color: 'var(--destructive)',
+              fill: 'var(--destructive)',
+            },
+            {
+              key: 'success_count',
+              label: 'Success',
+              color: 'var(--chart-1)',
+              fill: 'var(--chart-1)',
+            },
+          ]"
+        />
       </div>
-    </template>
+
+      <div class="min-w-0 rounded-lg border border-border bg-muted/30 px-4 pt-4 pb-2">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div class="text-sm font-medium">Tokens</div>
+          <Select v-model="tokenRange">
+            <SelectTrigger class="w-[140px]">
+              <SelectValue placeholder="Range" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1d">1 day</SelectItem>
+              <SelectItem value="1m">1 month</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div
+          v-if="loadingToken"
+          class="py-8 text-center text-sm text-muted-foreground"
+        >
+          Loading…
+        </div>
+        <UsageLineChart
+          v-else
+          :points="tokenPoints"
+          :x-count="tokenSeriesPointCount"
+          :series="[
+            {
+              key: 'prompt_tokens',
+              label: 'Input',
+              color: 'var(--chart-1)',
+              fill: 'var(--chart-1)',
+            },
+            {
+              key: 'completion_tokens',
+              label: 'Output',
+              color: 'var(--chart-5)',
+              fill: 'var(--chart-5)',
+            },
+          ]"
+        />
+      </div>
+    </div>
 
     <div class="mt-4 grid gap-4 lg:grid-cols-10">
       <div class="min-w-0 rounded-lg border border-border bg-muted/30 px-4 pt-4 pb-2 lg:col-span-4">
@@ -292,15 +413,30 @@ onMounted(() => {
       </div>
     </div>
 
-    <div
-      v-if="chartStats"
-      class="mt-4 min-w-0 rounded-lg border border-border bg-muted/30 px-4 pt-4 pb-2"
-    >
-      <div class="mb-2 text-sm font-medium">Credits used</div>
+    <div class="mt-4 min-w-0 rounded-lg border border-border bg-muted/30 px-4 pt-4 pb-2">
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div class="text-sm font-medium">Credits used</div>
+        <Select v-model="creditsRange">
+          <SelectTrigger class="w-[140px]">
+            <SelectValue placeholder="Range" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="1d">1 day</SelectItem>
+            <SelectItem value="1m">1 month</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div
+        v-if="loadingCredits"
+        class="py-8 text-center text-sm text-muted-foreground"
+      >
+        Loading…
+      </div>
       <UsageLineChart
+        v-else
         :points="creditsPoints"
-        :x-count="seriesPointCount"
-        :series="[{ key: 'value', color: 'hsl(var(--primary))', fill: 'hsl(var(--primary))' }]"
+        :x-count="creditsSeriesPointCount"
+        :series="[{ key: 'value', label: 'Credits', color: 'var(--chart-1)', fill: 'var(--chart-1)' }]"
       />
     </div>
   </section>

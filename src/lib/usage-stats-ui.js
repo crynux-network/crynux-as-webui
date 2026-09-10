@@ -7,6 +7,13 @@ export function formatCompactNumber(value) {
   }).format(n)
 }
 
+export function formatStatsAxisNumber(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return '0'
+  if (Math.abs(n) < 1000) return String(Math.round(n))
+  return formatCompactNumber(n)
+}
+
 export function formatExactNumber(value) {
   const n = Number(value)
   if (!Number.isFinite(n)) return '0'
@@ -58,6 +65,23 @@ export function formatStatsAxisTime(unixSeconds, range) {
     month: 'short',
     day: 'numeric',
   })
+}
+
+export function formatStatsTooltipTime(unixSeconds, range) {
+  const date = new Date(Number(unixSeconds) * 1000)
+  const dayLabel = date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  })
+  if (range === '1d' || range === '1h') {
+    const timeLabel = date.toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    return `${dayLabel} ${timeLabel}`
+  }
+  return dayLabel
 }
 
 export function seriesHasData(points, valueKeys = ['value']) {

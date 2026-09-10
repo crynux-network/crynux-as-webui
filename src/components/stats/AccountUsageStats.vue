@@ -16,6 +16,7 @@ import {
   formatExactCredits,
   formatExactNumber,
   formatStatsAxisTime,
+  formatStatsTooltipTime,
   formatSuccessRate,
   statsSeriesPointCount,
 } from '@/lib/usage-stats-ui'
@@ -71,6 +72,7 @@ const requestPoints = computed(() =>
     value: Number(point.value || 0),
     complete: Boolean(point.complete),
     label: formatStatsAxisTime(point.timestamp, range.value),
+    tooltipLabel: formatStatsTooltipTime(point.timestamp, range.value),
   })),
 )
 
@@ -80,6 +82,7 @@ const creditsPoints = computed(() =>
     value: Number(point.value || 0),
     complete: Boolean(point.complete),
     label: formatStatsAxisTime(point.timestamp, range.value),
+    tooltipLabel: formatStatsTooltipTime(point.timestamp, range.value),
   })),
 )
 
@@ -156,7 +159,7 @@ onMounted(() => {
           <UsageLineChart
             :points="requestPoints"
             :x-count="seriesPointCount"
-            :series="[{ key: 'value', color: 'hsl(var(--primary))', fill: 'hsl(var(--primary))' }]"
+            :series="[{ key: 'value', label: 'Requests', color: 'var(--chart-1)', fill: 'var(--chart-1)' }]"
           />
         </div>
         <div class="min-w-0 rounded-lg border border-border bg-background px-4 pt-4 pb-2">
@@ -164,7 +167,7 @@ onMounted(() => {
           <UsageLineChart
             :points="creditsPoints"
             :x-count="seriesPointCount"
-            :series="[{ key: 'value', color: 'hsl(var(--primary))', fill: 'hsl(var(--primary))' }]"
+            :series="[{ key: 'value', label: 'Credits', color: 'var(--chart-1)', fill: 'var(--chart-1)' }]"
           />
         </div>
       </div>
