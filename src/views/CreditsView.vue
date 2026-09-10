@@ -209,6 +209,10 @@ function formatPurchaseCredits(credits) {
   return `+${formatCreditsValue(credits)}`
 }
 
+function formatChargeCredits(credits) {
+  return `-${formatCreditsValue(credits)}`
+}
+
 watch(activeTab, (tab) => {
   if (tab === 'charges' && charges.value.length === 0 && !chargesLoading.value) {
     loadCharges()
@@ -372,14 +376,14 @@ onUnmounted(() => {
           <table class="w-full min-w-[860px] text-left text-sm">
             <thead class="border-b border-border bg-muted/40 text-muted-foreground">
               <tr>
-                <th class="px-4 py-2.5 font-medium">Time</th>
+                <th class="px-4 py-2.5 font-medium">Credits</th>
                 <th class="px-4 py-2.5 font-medium">Project</th>
-                <th class="px-4 py-2.5 font-medium">Cost Level</th>
                 <th class="px-4 py-2.5 font-medium">Model</th>
                 <th class="px-4 py-2.5 font-medium">VRAM</th>
                 <th class="px-4 py-2.5 font-medium">Input</th>
                 <th class="px-4 py-2.5 font-medium">Output</th>
-                <th class="px-4 py-2.5 font-medium">Credits</th>
+                <th class="px-4 py-2.5 font-medium">Cost Level</th>
+                <th class="px-4 py-2.5 font-medium">Time</th>
               </tr>
             </thead>
             <tbody v-if="!chargesLoading && charges.length > 0">
@@ -388,15 +392,14 @@ onUnmounted(() => {
                 :key="charge.id"
                 class="border-b border-border last:border-0"
               >
-                <td class="px-4 py-2.5 whitespace-nowrap">
-                  {{ formatRecordTime(charge.created_at) }}
-                </td>
-                <td class="px-4 py-2.5 tabular-nums">{{ charge.project_id }}</td>
                 <td class="px-4 py-2.5 tabular-nums">
-                  <template v-if="Number(charge.token_ratio) > 0">
-                    {{ formatTokenRatio(charge.token_ratio) }}×
-                  </template>
-                  <template v-else>—</template>
+                  {{ formatChargeCredits(charge.credits) }}
+                </td>
+                <td
+                  class="px-4 py-2.5 max-w-[180px] truncate"
+                  :title="charge.project_name || undefined"
+                >
+                  {{ charge.project_name || '—' }}
                 </td>
                 <td class="px-4 py-2.5 max-w-[220px] truncate" :title="charge.model">
                   {{ charge.model }}
@@ -411,7 +414,13 @@ onUnmounted(() => {
                   {{ formatCredits(charge.completion_tokens || 0) }}
                 </td>
                 <td class="px-4 py-2.5 tabular-nums">
-                  {{ formatCreditsValue(charge.credits) }}
+                  <template v-if="Number(charge.token_ratio) > 0">
+                    {{ formatTokenRatio(charge.token_ratio) }}×
+                  </template>
+                  <template v-else>—</template>
+                </td>
+                <td class="px-4 py-2.5 whitespace-nowrap">
+                  {{ formatRecordTime(charge.created_at) }}
                 </td>
               </tr>
             </tbody>
