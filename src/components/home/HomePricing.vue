@@ -55,7 +55,7 @@ const pricingRows = computed(() =>
 <template>
   <section
     id="pricing"
-    class="overflow-hidden bg-[var(--home-ink)] text-white dark:border-y dark:border-white/10"
+    class="bg-[var(--home-ink)] text-white dark:border-y dark:border-white/10"
   >
     <div class="mx-auto max-w-7xl px-6 py-24 lg:py-32">
       <div class="grid items-start gap-12 lg:grid-cols-[4fr_8fr] lg:gap-16">
@@ -114,8 +114,37 @@ const pricingRows = computed(() =>
               <span class="text-xs font-medium text-white/55">Faster</span>
             </div>
 
-            <div class="mt-8 overflow-x-auto rounded-2xl border border-white/10">
-              <table class="w-full min-w-[560px] text-left text-sm">
+            <div class="mt-8 space-y-3 sm:hidden">
+              <div
+                v-for="row in pricingRows"
+                :key="row.model"
+                class="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-4"
+              >
+                <div class="min-w-0">
+                  <div class="break-all font-medium text-white">{{ row.model }}</div>
+                  <div class="mt-0.5 text-xs text-white/45">{{ row.minVram }} GB</div>
+                </div>
+                <div class="mt-3 grid grid-cols-2 gap-3 border-t border-white/10 pt-3">
+                  <div>
+                    <p class="text-xs text-white/55">1M Input</p>
+                    <p class="mt-1 tabular-nums text-white">
+                      <span class="font-semibold">{{ formatCredits(row.inputCredits) }}</span>
+                      <span class="ml-1 text-xs text-white/45">Credits</span>
+                    </p>
+                  </div>
+                  <div>
+                    <p class="text-xs text-white/55">1M Output</p>
+                    <p class="mt-1 tabular-nums text-white">
+                      <span class="font-semibold">{{ formatCredits(row.outputCredits) }}</span>
+                      <span class="ml-1 text-xs text-white/45">Credits</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-8 hidden overflow-x-auto rounded-2xl border border-white/10 sm:block">
+              <table class="w-full text-left text-sm">
                 <thead class="border-b border-white/10 bg-white/[0.05] text-white/55">
                   <tr>
                     <th class="px-4 py-3 font-medium sm:px-5">Model</th>

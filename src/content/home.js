@@ -33,9 +33,8 @@ export const serviceTabs = [
     code: `from openai import OpenAI
 
 client = OpenAI(
-    base_url="https://bridge.crynux-as.xyz/v1/llm",
-    # For public demonstration only
-    api_key="q3hXHA_8O0LuGJ1_tou4_KamMlQqAo-aYwyAIDttdmI=",
+    base_url="https://YOUR_CRYNUX_AS_URL",
+    api_key="YOUR_API_KEY",
     timeout=180,
     max_retries=1,
 )
