@@ -12,7 +12,9 @@ import { initAppKit, wagmiConfig } from '@/lib/appkit'
 
 import '@/assets/index.css'
 import 'vue-sonner/style.css'
+import { initTheme } from '@/lib/theme'
 
+initTheme()
 initAppKit()
 
 const app = createApp(App)

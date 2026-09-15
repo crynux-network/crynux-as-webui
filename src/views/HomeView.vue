@@ -2,9 +2,18 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
-import { Button } from '@/components/ui/button'
+import HomeCta from '@/components/home/HomeCta.vue'
+import HomeFooter from '@/components/home/HomeFooter.vue'
+import HomeHeader from '@/components/home/HomeHeader.vue'
+import HomeHero from '@/components/home/HomeHero.vue'
+import HomeHighlights from '@/components/home/HomeHighlights.vue'
+import HomeIntegrations from '@/components/home/HomeIntegrations.vue'
+import HomePricing from '@/components/home/HomePricing.vue'
+import HomeServices from '@/components/home/HomeServices.vue'
+import HomeUseCases from '@/components/home/HomeUseCases.vue'
 import { useWalletConnect } from '@/composables/use-wallet-connect'
 import { useAuthStore } from '@/stores/auth'
+import '@/assets/home.css'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -15,7 +24,12 @@ function goDashboard() {
   router.push({ name: 'projects' })
 }
 
-async function onConnect() {
+async function onPrimary() {
+  if (auth.isAuthenticated) {
+    goDashboard()
+    return
+  }
+
   loading.value = true
   try {
     const result = await connect({ name: 'projects' })
@@ -41,29 +55,27 @@ async function onConnect() {
 </script>
 
 <template>
-  <div class="flex h-full flex-col items-center justify-center bg-background px-6">
-    <div class="mx-auto w-full max-w-xl text-center">
-      <p class="mb-2 text-sm font-medium uppercase tracking-widest text-muted-foreground">
-        Crynux AI Services
-      </p>
-      <h1 class="mb-4 text-4xl font-semibold tracking-tight text-foreground">
-        Home
-      </h1>
-      <p class="mb-8 text-muted-foreground">
-        Homepage content placeholder. Connect your wallet to open the dashboard.
-      </p>
-
-      <Button v-if="auth.isAuthenticated" size="lg" @click="goDashboard">
-        Dashboard
-      </Button>
-      <Button
-        v-else
-        size="lg"
-        :disabled="loading || auth.isAuthenticating"
-        @click="onConnect"
-      >
-        {{ loading || auth.isAuthenticating ? 'Connecting…' : 'Connect Wallet' }}
-      </Button>
-    </div>
+  <div class="home-page h-full overflow-x-hidden overflow-y-auto bg-[var(--home-background)] text-foreground">
+    <HomeHeader
+      :authenticated="auth.isAuthenticated"
+      :loading="loading || auth.isAuthenticating"
+      @primary="onPrimary"
+    />
+    <HomeHero
+      :authenticated="auth.isAuthenticated"
+      :loading="loading || auth.isAuthenticating"
+      @primary="onPrimary"
+    />
+    <HomeServices />
+    <HomePricing />
+    <HomeIntegrations />
+    <HomeHighlights />
+    <HomeUseCases />
+    <HomeCta
+      :authenticated="auth.isAuthenticated"
+      :loading="loading || auth.isAuthenticating"
+      @primary="onPrimary"
+    />
+    <HomeFooter />
   </div>
 </template>

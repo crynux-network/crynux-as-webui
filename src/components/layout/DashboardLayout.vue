@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { Coins, FolderKanban, LogOut } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import ThemeToggle from '@/components/theme/ThemeToggle.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useWalletStore } from '@/stores/wallet'
 
@@ -62,8 +63,11 @@ async function signOut() {
       </nav>
 
       <div class="border-t border-sidebar-border p-3">
-        <div class="mb-2 truncate px-1 text-xs text-muted-foreground">
-          {{ wallet.shortAddress() || auth.sessionAddress }}
+        <div class="mb-2 flex items-center justify-between gap-2 px-1">
+          <div class="truncate text-xs text-muted-foreground">
+            {{ wallet.shortAddress() || auth.sessionAddress }}
+          </div>
+          <ThemeToggle />
         </div>
         <Button variant="outline" size="sm" class="w-full justify-start gap-2" @click="signOut">
           <LogOut class="size-4" />

@@ -13,7 +13,7 @@ Crynux AS WebUI is a Vue 3 application that interacts with:
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Vue Components                            │
 │  HomeView │ DashboardLayout │ CreditsView │ ProjectListView │   │
-│  ProjectDetailView │ credits/* │ projects/* │ ui/*              │
+│  ProjectDetailView │ home/* │ credits/* │ projects/* │ ui/*     │
 ├─────────────────────────────────────────────────────────────────┤
 │     Stores (Pinia)      │         Composables                   │
 │  ┌─────────┐ ┌────────┐ │  ┌──────────────────────────────┐     │
@@ -60,13 +60,19 @@ src/
 ├── components/
 │   ├── layout/
 │   │   └── DashboardLayout.vue  # Fixed left sidebar + scrollable main
+│   ├── home/                  # Public marketing homepage sections
+│   ├── theme/
+│   │   └── ThemeToggle.vue    # Light/dark mode toggle
 │   ├── credits/               # Purchase dialog
 │   ├── projects/              # Project dialogs (create, reveal key, reset, delete, rename)
 │   └── ui/                    # shadcn-vue generated components
 ├── composables/
 │   └── use-wallet-connect.js  # Connect modal → auth → optional redirect
+├── content/
+│   └── home.js                # Public homepage copy, links, and code samples
 ├── lib/
 │   ├── appkit.js              # Reown AppKit + WagmiAdapter init
+│   ├── theme.js               # Light/dark theme resolve, persist, and apply
 │   ├── credits-ui.js          # Credits page formatting and purchase helpers
 │   ├── llm-billing.js         # Credits and execution-time example helpers
 │   ├── project-url.js         # Private LLM base URL builder
@@ -79,17 +85,20 @@ src/
 │   ├── auth.js                # JWT session
 │   └── wallet.js              # Wallet address synced from wagmi
 ├── views/
-│   ├── HomeView.vue           # Public home + Connect
+│   ├── HomeView.vue           # Public marketing home + Connect
 │   ├── CreditsView.vue        # Balance, purchase, purchases/usage history
 │   ├── ProjectListView.vue    # Dashboard project list + create
 │   └── ProjectDetailView.vue  # Project detail, usage charts, recent requests
 ├── assets/
-│   └── index.css              # Tailwind + theme CSS variables
+│   ├── index.css              # Tailwind + theme CSS variables
+│   └── home.css               # Homepage reveal, logo assemble, fancy text
 ├── config.example.json        # committed template for local config.json
 ├── config.json                # local as_url / networks (gitignored)
 ├── App.vue
 └── main.js
 ```
+
+Public homepage static assets live under `public/home/` (brand SVG and integration logos).
 
 ---
 
@@ -112,7 +121,9 @@ src/
 
 ### Layout
 
-- `/` is a full-screen public page with no dashboard sidebar.
+- `/` is a full-screen public marketing page with no dashboard sidebar. `HomeView` owns a dedicated `h-full overflow-y-auto` scroll container so the homepage can scroll while `html`/`body`/`#app` remain `overflow-hidden` for the dashboard shell.
+- The public homepage is assembled from `components/home/*` sections and static copy in `content/home.js`. Header, Hero, and CTA actions call `useWalletConnect()` when the user is not authenticated, and navigate to Projects when authenticated.
+- Light and dark mode are shared across the homepage and dashboard. `lib/theme.js` resolves the theme from `localStorage` key `crynux-as-theme` or the system preference, applies the root `.dark` class, and is initialized before Vue mount in `index.html` and `main.js`. `ThemeToggle` appears in the homepage header and the dashboard sidebar.
 - `/dashboard/*` uses `DashboardLayout.vue`: fixed-width left sidebar (no vertical scroll) and a right main area that scrolls independently (`h-full` flex on a viewport-sized `html`/`body`/`#app` with `overflow-hidden`; main uses `flex-1 min-h-0 overflow-y-auto`). The document root MUST NOT scroll; only the main content area scrolls.
 - Dashboard page content MUST fill the full width of the right main area. `DashboardLayout` wraps `RouterView` in a full-width container with shared horizontal and vertical padding (`px-6 py-8`). Dashboard views MUST NOT center themselves with `mx-auto` or constrain the page to a max-width column.
 
@@ -315,6 +326,7 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | File | Purpose |
 |------|---------|
 | `lib/appkit.js` | Reown AppKit + wagmi config |
+| `lib/theme.js` | Light/dark theme resolve, persist, and apply |
 | `lib/credits-ui.js` | Credits formatting, purchase estimate, transfer helpers |
 | `lib/project-url.js` | Build private LLM base URL from `endpoint_token` |
 | `lib/token-ratio.js` | Builds allowed `token_ratio` display values from `max_token_ratio` |
@@ -333,6 +345,10 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `components/credits/*` | Purchase dialog |
 | `components/projects/*` | Create, API key reveal, reset, rename, and delete dialogs |
 | `components/ui/sonner` | Global toast notifications via `vue-sonner` |
+| `views/HomeView.vue` | Public marketing homepage and wallet connect entry |
+| `components/home/*` | Homepage header, hero, services, interactive Cost Level pricing example, integrations, highlights, use cases, CTA, footer |
+| `content/home.js` | Homepage copy, links, and code samples |
+| `components/theme/ThemeToggle.vue` | Light/dark mode toggle |
 | `views/CreditsView.vue` | Balance, purchase, purchases and usage history |
 | `views/ProjectListView.vue` | Project list and create flow |
 | `views/ProjectDetailView.vue` | Project detail, Cost Level, Usage charts, Recent Requests, reset key, delete |

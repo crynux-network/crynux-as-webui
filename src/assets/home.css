@@ -1,0 +1,73 @@
+:root {
+  --home-background: #fafafa;
+  --home-surface: #ffffff;
+  --home-ink: #0a1626;
+  --home-secondary: #3bdbfe;
+  --home-accent: #1d4991;
+}
+
+.dark {
+  --home-background: #0b0f14;
+  --home-surface: #11161d;
+  --home-ink: #0b0f14;
+  --home-secondary: #3bdbfe;
+  --home-accent: #3bdbfe;
+}
+
+.home-fancy-text {
+  background-image: linear-gradient(
+    110deg,
+    var(--home-accent),
+    var(--primary),
+    var(--home-secondary),
+    var(--primary),
+    var(--home-accent)
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: home-fancytext-pan 6s linear infinite;
+}
+
+.home-reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition:
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.home-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.home-code-block {
+  background: #282c34;
+  color: #abb2bf;
+}
+
+.home-code-block .hljs {
+  background: transparent;
+  padding: 0;
+  overflow: visible;
+}
+
+@keyframes home-fancytext-pan {
+  to {
+    background-position: 200% center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-fancy-text {
+    animation: none;
+  }
+
+  .home-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
