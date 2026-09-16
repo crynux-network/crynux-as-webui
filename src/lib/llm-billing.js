@@ -1,8 +1,11 @@
 /**
  * Shared billable_gwei helpers for Credits and execution-time examples.
  *
- * billable_gwei = Pref * R * estimated_node_seconds * vram_weight
+ * billable_gwei = priority_gwei * estimated_node_seconds * vram_weight
  * credits = floor(billable_gwei * G)
+ *
+ * Live request charging applies max(1, ...) on the server. These helpers
+ * are for Credits-per-token example cells and MUST NOT apply that floor.
  */
 
 export function vramWeight(minVram, baseVram) {
@@ -15,19 +18,17 @@ export function vramWeight(minVram, baseVram) {
 export function estimateCredits({
   promptTokens = 0,
   completionTokens = 0,
-  tokenRatio,
+  priorityGwei,
   minVram,
   baseVram,
-  referencePriorityGwei,
   creditsPerGwei,
   constantSeconds = 0,
   secondsPerInputToken = 0,
   secondsPerOutputToken = 0,
 }) {
-  const pref = Number(referencePriorityGwei)
+  const prio = Number(priorityGwei)
   const g = Number(creditsPerGwei)
-  const r = Number(tokenRatio)
-  if (!(pref > 0) || !(g > 0) || !(r > 0)) return 0
+  if (!(prio > 0) || !(g > 0)) return 0
 
   const weight = vramWeight(minVram, baseVram)
   if (!(weight > 0)) return 0
@@ -39,7 +40,7 @@ export function estimateCredits({
 
   if (!(estimatedNodeSeconds >= 0)) return 0
 
-  const billableGwei = pref * r * estimatedNodeSeconds * weight
+  const billableGwei = prio * estimatedNodeSeconds * weight
   return Math.trunc(billableGwei * g)
 }
 
@@ -59,9 +60,8 @@ export function estimateExecutionSeconds({
 
 export function buildExampleRows({
   examples,
-  tokenRatio,
+  priorityGwei,
   baseVram,
-  referencePriorityGwei,
   creditsPerGwei,
   pricingPromptTokens,
   pricingCompletionTokens,
@@ -81,10 +81,9 @@ export function buildExampleRows({
       inputCredits: estimateCredits({
         promptTokens: pricingPromptTokens,
         completionTokens: 0,
-        tokenRatio,
+        priorityGwei,
         minVram,
         baseVram,
-        referencePriorityGwei,
         creditsPerGwei,
         constantSeconds: 0,
         secondsPerInputToken,
@@ -93,10 +92,9 @@ export function buildExampleRows({
       outputCredits: estimateCredits({
         promptTokens: 0,
         completionTokens: pricingCompletionTokens,
-        tokenRatio,
+        priorityGwei,
         minVram,
         baseVram,
-        referencePriorityGwei,
         creditsPerGwei,
         constantSeconds: 0,
         secondsPerInputToken: 0,
@@ -113,26 +111,92 @@ export function buildExampleRows({
   })
 }
 
-export function effectivePriorityGwei(referencePriorityGwei, tokenRatio) {
-  const pref = Number(referencePriorityGwei)
-  const r = Number(tokenRatio)
-  if (!(pref > 0) || !(r > 0)) return 0
-  return pref * r
+/** Inclusive hard bounds for Cost Level priority. */
+export function parsePriorityBounds(minPriorityGwei, maxPriorityGwei) {
+  const min = Number(minPriorityGwei)
+  const max = Number(maxPriorityGwei)
+  if (!(min > 0) || !(max > 0) || min > max) {
+    return { min: 1, max: 1_000_000_000 }
+  }
+  return { min, max }
 }
 
-export function queuePositionRatio(referencePriorityGwei, tokenRatio, medianPriorityGwei) {
-  const effective = effectivePriorityGwei(referencePriorityGwei, tokenRatio)
+/**
+ * Visible log slider axis: pack queue and user with margin, then clamp to hard bounds.
+ */
+export function computePriorityAxis({
+  userPriorityGwei,
+  lowestPriorityGwei,
+  highestPriorityGwei,
+  medianPriorityGwei,
+  minPriorityGwei,
+  maxPriorityGwei,
+}) {
+  const { min: hardMin, max: hardMax } = parsePriorityBounds(
+    minPriorityGwei,
+    maxPriorityGwei,
+  )
+  const user = Math.max(1, Number(userPriorityGwei) || hardMin)
+  const low = Number(lowestPriorityGwei)
+  const high = Number(highestPriorityGwei)
   const median = Number(medianPriorityGwei)
-  if (!(median > 0) || !(effective > 0)) return null
-  return effective / median
+
+  let axisMin
+  let axisMax
+  if (low > 0 && high > 0) {
+    axisMin = Math.min(low, user) / 2
+    axisMax = Math.max(high, user) * 2
+  } else if (median > 0) {
+    axisMin = Math.min(median, user) / 2
+    axisMax = Math.max(median, user) * 2
+  } else {
+    axisMin = user / 2
+    axisMax = user * 2
+  }
+
+  axisMin = Math.max(hardMin, axisMin)
+  axisMax = Math.min(hardMax, Math.max(axisMax, axisMin))
+  if (axisMax <= axisMin) {
+    axisMax = Math.min(hardMax, axisMin * 2)
+  }
+  return { axisMin, axisMax, hardMin, hardMax }
 }
 
-/** Maps a queue priority to the matching cost level: priority / Pref. */
-export function priorityToCostLevel(priorityGwei, referencePriorityGwei) {
-  const pref = Number(referencePriorityGwei)
-  const priority = Number(priorityGwei)
-  if (!(pref > 0) || !(priority > 0)) return null
-  return priority / pref
+export function priorityToLogPercent(priorityGwei, axisMin, axisMax) {
+  const value = Number(priorityGwei)
+  const min = Number(axisMin)
+  const max = Number(axisMax)
+  if (!(value > 0) || !(min > 0) || !(max > min)) return 0
+  const logMin = Math.log(min)
+  const logMax = Math.log(max)
+  const clamped = Math.min(max, Math.max(min, value))
+  return ((Math.log(clamped) - logMin) / (logMax - logMin)) * 100
+}
+
+export function logPercentToPriority(percent, axisMin, axisMax) {
+  const min = Number(axisMin)
+  const max = Number(axisMax)
+  if (!(min > 0) || !(max > min)) return Math.round(min) || 1
+  const t = Math.min(100, Math.max(0, Number(percent))) / 100
+  const logMin = Math.log(min)
+  const logMax = Math.log(max)
+  const value = Math.exp(logMin + t * (logMax - logMin))
+  return Math.max(1, Math.round(value))
+}
+
+export function clampPriorityGwei(value, minPriorityGwei, maxPriorityGwei) {
+  const { min, max } = parsePriorityBounds(minPriorityGwei, maxPriorityGwei)
+  const n = Math.round(Number(value))
+  if (!Number.isFinite(n) || n <= 0) return min
+  return Math.min(max, Math.max(min, n))
+}
+
+export function parsePriorityInput(raw) {
+  const cleaned = String(raw ?? '').trim()
+  if (!/^\d+$/.test(cleaned)) return null
+  const n = Number(cleaned)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return Math.trunc(n)
 }
 
 export function formatCredits(credits) {
@@ -157,13 +221,6 @@ export function formatGwei(value) {
   const n = Number(value)
   if (!Number.isFinite(n)) return '—'
   return new Intl.NumberFormat('en-US', {
-    maximumFractionDigits: 4,
+    maximumFractionDigits: 0,
   }).format(n)
-}
-
-export function formatQueueRatio(ratio) {
-  if (ratio == null || !Number.isFinite(ratio)) return '—'
-  return new Intl.NumberFormat('en-US', {
-    maximumFractionDigits: 2,
-  }).format(ratio)
 }

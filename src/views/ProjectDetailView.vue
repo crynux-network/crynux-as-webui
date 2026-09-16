@@ -40,18 +40,16 @@ import {
   projectResponsesUrl,
 } from '@/lib/project-url'
 import {
-  DEFAULT_MAX_TOKEN_RATIO,
-  buildTokenRatioOptions,
-  formatTokenRatio,
-  sliderIndexToTokenRatio,
-  tokenRatioToSliderIndex,
-} from '@/lib/token-ratio'
-import {
   buildExampleRows,
+  clampPriorityGwei,
+  computePriorityAxis,
   formatCredits,
+  formatGwei,
   formatSeconds,
   formatTokenCount,
-  priorityToCostLevel,
+  logPercentToPriority,
+  parsePriorityInput,
+  priorityToLogPercent,
 } from '@/lib/llm-billing'
 import {
   copyText,
@@ -62,22 +60,20 @@ import { toast } from 'vue-sonner'
 const route = useRoute()
 const router = useRouter()
 
+const SLIDER_SCALE = 10
+const SLIDER_MAX = 100 * SLIDER_SCALE
+
 const project = ref(null)
 const loading = ref(false)
-const savingRatio = ref(false)
-const maxTokenRatio = ref(DEFAULT_MAX_TOKEN_RATIO)
-const tokenRatioOptions = computed(() =>
-  buildTokenRatioOptions(maxTokenRatio.value),
-)
-const tokenRatioSliderMax = computed(() =>
-  Math.max(0, tokenRatioOptions.value.length - 1),
-)
-const sliderIndex = ref([
-  tokenRatioToSliderIndex(1, buildTokenRatioOptions(DEFAULT_MAX_TOKEN_RATIO)),
-])
-const savedTokenRatio = ref(1)
+const savingPriority = ref(false)
+const priorityGwei = ref(1)
+const savedPriorityGwei = ref(1)
+const priorityInput = ref('1')
+const sliderPercent = ref([0])
+const minPriorityGwei = ref(1)
+const maxPriorityGwei = ref(1_000_000_000)
+const medianPriorityGwei = ref(null)
 const baseVram = ref(8)
-const referencePriorityGwei = ref('1')
 const creditsPerGwei = ref(1)
 const highestPriorityGwei = ref(null)
 const lowestPriorityGwei = ref(null)
@@ -88,8 +84,8 @@ const timePromptTokens = ref(512)
 const timeCompletionTokens = ref(2048)
 const copiedField = ref('')
 let copiedFieldTimer = null
-let ratioSaveTimer = null
-let syncingSlider = false
+let prioritySaveTimer = null
+let syncingPriority = false
 const COST_LEVEL_TOAST_ID = 'cost-level-save'
 const COST_LEVEL_SAVE_DELAY_MS = 3000
 
@@ -136,20 +132,27 @@ const apiGuideItems = computed(() => {
     },
   ]
 })
-const currentTokenRatio = computed(() =>
-  sliderIndexToTokenRatio(sliderIndex.value[0], tokenRatioOptions.value),
+
+const priorityAxis = computed(() =>
+  computePriorityAxis({
+    userPriorityGwei: priorityGwei.value,
+    lowestPriorityGwei: lowestPriorityGwei.value,
+    highestPriorityGwei: highestPriorityGwei.value,
+    medianPriorityGwei: medianPriorityGwei.value,
+    minPriorityGwei: minPriorityGwei.value,
+    maxPriorityGwei: maxPriorityGwei.value,
+  }),
 )
-const ratioDirty = computed(
-  () =>
-    formatTokenRatio(currentTokenRatio.value) !==
-    formatTokenRatio(savedTokenRatio.value),
+
+const priorityDirty = computed(
+  () => Number(priorityGwei.value) !== Number(savedPriorityGwei.value),
 )
+
 const pricingRows = computed(() =>
   buildExampleRows({
     examples: pricingExamples.value,
-    tokenRatio: currentTokenRatio.value,
+    priorityGwei: priorityGwei.value,
     baseVram: baseVram.value,
-    referencePriorityGwei: referencePriorityGwei.value,
     creditsPerGwei: creditsPerGwei.value,
     pricingPromptTokens: pricingPromptTokens.value,
     pricingCompletionTokens: pricingCompletionTokens.value,
@@ -157,65 +160,65 @@ const pricingRows = computed(() =>
     timeCompletionTokens: timeCompletionTokens.value,
   }),
 )
+
 const queueRangeBar = computed(() => {
-  const options = tokenRatioOptions.value
-  const sliderMax = tokenRatioSliderMax.value
-  const lowLevel = priorityToCostLevel(
-    lowestPriorityGwei.value,
-    referencePriorityGwei.value,
-  )
-  const highLevel = priorityToCostLevel(
-    highestPriorityGwei.value,
-    referencePriorityGwei.value,
-  )
-  if (lowLevel == null || highLevel == null) return null
+  const low = Number(lowestPriorityGwei.value)
+  const high = Number(highestPriorityGwei.value)
+  if (!(low > 0) || !(high > 0)) return null
 
-  const minCostLevel = options[0]
-  const maxCostLevel = options[sliderMax]
+  const { axisMin, axisMax } = priorityAxis.value
   const outOfRange =
-    (lowLevel < minCostLevel && highLevel < minCostLevel) ||
-    (lowLevel > maxCostLevel && highLevel > maxCostLevel)
+    (low < axisMin && high < axisMin) || (low > axisMax && high > axisMax)
 
-  const minIndex = tokenRatioToSliderIndex(lowLevel, options)
-  const maxIndex = tokenRatioToSliderIndex(highLevel, options)
-  const leftIndex = Math.min(minIndex, maxIndex)
-  const rightIndex = Math.max(minIndex, maxIndex)
+  const minPercent = priorityToLogPercent(low, axisMin, axisMax)
+  const maxPercent = priorityToLogPercent(high, axisMin, axisMax)
+  const left = Math.min(minPercent, maxPercent)
+  const right = Math.max(minPercent, maxPercent)
 
   return {
     outOfRange,
-    minPercent: (minIndex / sliderMax) * 100,
-    maxPercent: (maxIndex / sliderMax) * 100,
-    blueLeft: (leftIndex / sliderMax) * 100,
-    blueWidth: ((rightIndex - leftIndex) / sliderMax) * 100,
+    minPercent,
+    maxPercent,
+    blueLeft: left,
+    blueWidth: right - left,
   }
 })
 const showQueueRangeBar = computed(() => queueRangeBar.value != null)
 
 watch(projectId, () => {
-  clearRatioSaveTimer()
+  clearPrioritySaveTimer()
   loadProject()
 })
 
 watch(
-  () => sliderIndex.value?.[0],
-  () => {
-    if (syncingSlider || !project.value) return
-    scheduleRatioSave()
+  () => sliderPercent.value?.[0],
+  (raw) => {
+    if (syncingPriority || !project.value) return
+    const percent = Number(raw) / SLIDER_SCALE
+    const { axisMin, axisMax } = priorityAxis.value
+    const next = clampPriorityGwei(
+      logPercentToPriority(percent, axisMin, axisMax),
+      minPriorityGwei.value,
+      maxPriorityGwei.value,
+    )
+    if (next === Number(priorityGwei.value)) return
+    applyPriorityLocal(next, { syncInput: true, remapSlider: true })
+    schedulePrioritySave()
   },
 )
 
-function clearRatioSaveTimer() {
-  if (ratioSaveTimer) {
-    clearTimeout(ratioSaveTimer)
-    ratioSaveTimer = null
+function clearPrioritySaveTimer() {
+  if (prioritySaveTimer) {
+    clearTimeout(prioritySaveTimer)
+    prioritySaveTimer = null
   }
 }
 
-function scheduleRatioSave() {
-  clearRatioSaveTimer()
-  if (!ratioDirty.value) return
-  ratioSaveTimer = setTimeout(() => {
-    ratioSaveTimer = null
+function schedulePrioritySave() {
+  clearPrioritySaveTimer()
+  if (!priorityDirty.value) return
+  prioritySaveTimer = setTimeout(() => {
+    prioritySaveTimer = null
     saveCostLevel()
   }, COST_LEVEL_SAVE_DELAY_MS)
 }
@@ -228,12 +231,28 @@ function showCostLevelToast(type, message) {
   }
 }
 
-function setSliderFromRatio(tokenRatio) {
-  syncingSlider = true
-  sliderIndex.value = [
-    tokenRatioToSliderIndex(tokenRatio, tokenRatioOptions.value),
-  ]
-  syncingSlider = false
+function sliderUnitsFromPriority(value) {
+  const { axisMin, axisMax } = priorityAxis.value
+  return Math.round(
+    priorityToLogPercent(value, axisMin, axisMax) * SLIDER_SCALE,
+  )
+}
+
+function applyPriorityLocal(value, { syncInput = true, remapSlider = true } = {}) {
+  const next = clampPriorityGwei(
+    value,
+    minPriorityGwei.value,
+    maxPriorityGwei.value,
+  )
+  syncingPriority = true
+  priorityGwei.value = next
+  if (syncInput) {
+    priorityInput.value = String(next)
+  }
+  if (remapSlider) {
+    sliderPercent.value = [sliderUnitsFromPriority(next)]
+  }
+  syncingPriority = false
 }
 
 async function loadBillingConfig() {
@@ -243,19 +262,23 @@ async function loadBillingConfig() {
     if (Number.isFinite(nextBaseVram) && nextBaseVram > 0) {
       baseVram.value = nextBaseVram
     }
-    if (data?.reference_priority_gwei) {
-      referencePriorityGwei.value = String(data.reference_priority_gwei)
-    }
     const nextCreditsPerGwei = Number(data?.credits_per_gwei)
     if (Number.isFinite(nextCreditsPerGwei) && nextCreditsPerGwei > 0) {
       creditsPerGwei.value = nextCreditsPerGwei
     }
-    const nextMaxTokenRatio = Number(data?.max_token_ratio)
-    if (Number.isFinite(nextMaxTokenRatio) && nextMaxTokenRatio >= 2) {
-      maxTokenRatio.value = Math.floor(nextMaxTokenRatio)
-      if (project.value) {
-        setSliderFromRatio(savedTokenRatio.value)
-      }
+    const nextMin = Number(data?.min_priority_gwei)
+    const nextMax = Number(data?.max_priority_gwei)
+    if (Number.isFinite(nextMin) && nextMin > 0) {
+      minPriorityGwei.value = nextMin
+    }
+    if (Number.isFinite(nextMax) && nextMax > 0) {
+      maxPriorityGwei.value = nextMax
+    }
+    const nextMedian = Number(data?.median_priority_gwei)
+    if (Number.isFinite(nextMedian) && nextMedian > 0) {
+      medianPriorityGwei.value = nextMedian
+    } else {
+      medianPriorityGwei.value = null
     }
     if (data?.highest_priority_gwei != null && data?.lowest_priority_gwei != null) {
       highestPriorityGwei.value = String(data.highest_priority_gwei)
@@ -263,6 +286,9 @@ async function loadBillingConfig() {
     } else {
       highestPriorityGwei.value = null
       lowestPriorityGwei.value = null
+    }
+    if (project.value) {
+      applyPriorityLocal(priorityGwei.value)
     }
   } catch (e) {
     console.error('Failed to load LLM billing config', e)
@@ -316,8 +342,18 @@ async function loadProject() {
 
 function applyProject(data) {
   project.value = data
-  savedTokenRatio.value = Number(data.token_ratio)
-  setSliderFromRatio(data.token_ratio)
+  const raw = Number(data.priority_gwei)
+  const fallback =
+    Number(medianPriorityGwei.value) > 0
+      ? Number(medianPriorityGwei.value)
+      : minPriorityGwei.value
+  const next = clampPriorityGwei(
+    Number.isFinite(raw) && raw > 0 ? raw : fallback,
+    minPriorityGwei.value,
+    maxPriorityGwei.value,
+  )
+  savedPriorityGwei.value = next
+  applyPriorityLocal(next)
 }
 
 async function onCopyField(field, value) {
@@ -342,29 +378,48 @@ function onSelectUrl(event) {
   }
 }
 
+function onPriorityInput() {
+  const parsed = parsePriorityInput(priorityInput.value)
+  if (parsed == null) return
+  applyPriorityLocal(parsed, { syncInput: false, remapSlider: true })
+  schedulePrioritySave()
+}
+
+function onPriorityInputBlur() {
+  const parsed = parsePriorityInput(priorityInput.value)
+  if (parsed == null) {
+    priorityInput.value = String(priorityGwei.value)
+    return
+  }
+  applyPriorityLocal(parsed)
+  schedulePrioritySave()
+}
+
 async function saveCostLevel() {
-  if (!project.value || !ratioDirty.value) return
-  if (savingRatio.value) {
-    scheduleRatioSave()
+  if (!project.value || !priorityDirty.value) return
+  if (savingPriority.value) {
+    schedulePrioritySave()
     return
   }
 
-  const ratioToSave = currentTokenRatio.value
-  savingRatio.value = true
+  const priorityToSave = priorityGwei.value
+  savingPriority.value = true
   try {
     const data = await projectsAPI.update(project.value.id, {
       name: project.value.name,
-      token_ratio: ratioToSave,
+      priority_gwei: String(priorityToSave),
     })
     project.value = data
-    savedTokenRatio.value = Number(data.token_ratio)
-    if (
-      formatTokenRatio(currentTokenRatio.value) ===
-      formatTokenRatio(ratioToSave)
-    ) {
-      setSliderFromRatio(data.token_ratio)
+    const saved = clampPriorityGwei(
+      Number(data.priority_gwei),
+      minPriorityGwei.value,
+      maxPriorityGwei.value,
+    )
+    savedPriorityGwei.value = saved
+    if (Number(priorityGwei.value) === Number(priorityToSave)) {
+      applyPriorityLocal(saved)
     } else {
-      scheduleRatioSave()
+      schedulePrioritySave()
     }
     showCostLevelToast('success', 'Cost level saved')
   } catch (e) {
@@ -373,9 +428,9 @@ async function saveCostLevel() {
       'error',
       projectErrorMessage(e, 'Could not save cost level. Please try again later.'),
     )
-    setSliderFromRatio(savedTokenRatio.value)
+    applyPriorityLocal(savedPriorityGwei.value)
   } finally {
-    savingRatio.value = false
+    savingPriority.value = false
   }
 }
 
@@ -409,7 +464,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  clearRatioSaveTimer()
+  clearPrioritySaveTimer()
   if (copiedFieldTimer) {
     clearTimeout(copiedFieldTimer)
     copiedFieldTimer = null
@@ -633,7 +688,7 @@ onUnmounted(() => {
             v-if="!costLevelOpen"
             class="font-mono text-2xl font-semibold tabular-nums text-primary"
           >
-            {{ formatTokenRatio(currentTokenRatio) }}×
+            {{ formatGwei(priorityGwei) }}
           </span>
         </button>
 
@@ -652,25 +707,29 @@ onUnmounted(() => {
           </div>
 
           <div
-            class="mb-6 grid grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2"
+            class="mb-6 grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-2"
           >
-            <span
-              class="shrink-0 font-mono text-2xl font-semibold tabular-nums text-primary"
-            >
-              {{ formatTokenRatio(currentTokenRatio) }}×
-            </span>
             <span class="shrink-0 text-xs text-muted-foreground">Cheaper</span>
-              <Slider
-                v-model="sliderIndex"
-                :min="0"
-                :max="tokenRatioSliderMax"
-                :step="1"
-                class="w-full"
-              />
+            <Slider
+              v-model="sliderPercent"
+              :min="0"
+              :max="SLIDER_MAX"
+              :step="1"
+              class="w-full"
+            />
             <span class="shrink-0 text-xs text-muted-foreground">Faster</span>
+            <Input
+              v-model="priorityInput"
+              inputmode="numeric"
+              autocomplete="off"
+              aria-label="Cost level"
+              class="h-9 w-28 shrink-0 bg-background font-mono text-sm tabular-nums"
+              @input="onPriorityInput"
+              @blur="onPriorityInputBlur"
+            />
             <div
               v-if="showQueueRangeBar"
-              class="relative col-start-3 h-8"
+              class="relative col-start-2 h-8"
               aria-hidden="true"
             >
               <div
@@ -827,7 +886,7 @@ onUnmounted(() => {
       v-model:open="renameOpen"
       :project-id="project?.id"
       :project-name="project?.name"
-      :token-ratio="savedTokenRatio"
+      :priority-gwei="String(savedPriorityGwei)"
       @renamed="onRenamed"
     />
     <ResetApiKeyDialog

@@ -20,7 +20,7 @@ const open = defineModel('open', { type: Boolean, default: false })
 const props = defineProps({
   projectId: { type: [Number, String], default: null },
   projectName: { type: String, default: '' },
-  tokenRatio: { type: Number, default: 1 },
+  priorityGwei: { type: String, default: '1' },
 })
 
 const emit = defineEmits(['renamed'])
@@ -50,7 +50,7 @@ async function onSubmit() {
   try {
     const project = await projectsAPI.update(props.projectId, {
       name: trimmed,
-      token_ratio: props.tokenRatio,
+      priority_gwei: String(props.priorityGwei),
     })
     open.value = false
     emit('renamed', project)

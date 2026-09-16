@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { ChevronRight } from 'lucide-vue-next'
-import { formatTokenRatio } from '@/lib/token-ratio'
+import { formatGwei } from '@/lib/llm-billing'
 import { formatProjectCreatedAt } from '@/lib/project-ui'
 
 const props = defineProps({
@@ -13,7 +13,7 @@ const props = defineProps({
 
 const emit = defineEmits(['open'])
 
-const costLevel = computed(() => formatTokenRatio(props.project.token_ratio))
+const costLevel = computed(() => formatGwei(props.project.priority_gwei))
 const createdAt = computed(() =>
   formatProjectCreatedAt(props.project.created_at),
 )
@@ -46,7 +46,7 @@ function onOpen() {
           Cost level
         </p>
         <p class="mt-1.5 font-mono text-xl font-semibold tabular-nums tracking-tight text-primary">
-          {{ costLevel }}×
+          {{ costLevel }}
         </p>
       </div>
 

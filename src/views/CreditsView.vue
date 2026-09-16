@@ -7,8 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import PurchaseDialog from '@/components/credits/PurchaseDialog.vue'
 import { accountAPI } from '@/api/v1/account'
 import { purchaseAPI } from '@/api/v1/purchase'
-import { formatCredits } from '@/lib/llm-billing'
-import { formatTokenRatio } from '@/lib/token-ratio'
+import { formatCredits, formatGwei } from '@/lib/llm-billing'
 import {
   PAGE_SIZE,
   creditsErrorMessage,
@@ -414,8 +413,8 @@ onUnmounted(() => {
                   {{ formatCredits(charge.completion_tokens || 0) }}
                 </td>
                 <td class="px-4 py-2.5 tabular-nums">
-                  <template v-if="Number(charge.token_ratio) > 0">
-                    {{ formatTokenRatio(charge.token_ratio) }}×
+                  <template v-if="Number(charge.priority_gwei) > 0">
+                    {{ formatGwei(charge.priority_gwei) }}
                   </template>
                   <template v-else>—</template>
                 </td>
