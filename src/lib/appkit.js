@@ -10,7 +10,7 @@ const metadata = {
   name: 'Crynux AI Services',
   description: 'Crynux AI Services dashboard',
   url: typeof window !== 'undefined' ? window.location.origin : 'https://localhost',
-  icons: [typeof window !== 'undefined' ? `${window.location.origin}/favicon.svg` : '']
+  icons: [typeof window !== 'undefined' ? `${window.location.origin}/favicon-solid.svg?v=3` : ''],
 }
 
 function applyExplorer(network, entry) {

@@ -17,16 +17,22 @@ const emit = defineEmits(['primary'])
 </script>
 
 <template>
-  <header class="fixed inset-x-0 top-4 z-40 px-4">
+  <header class="sticky inset-x-0 top-4 z-40 h-0 px-4">
     <div
-      class="mx-auto flex h-16 max-w-4xl items-center justify-between rounded-full border border-foreground/10 bg-background/80 pl-5 pr-2.5 shadow-[0_8px_32px_-12px_rgba(16,21,27,0.15)] backdrop-blur-xl dark:bg-card/80"
+      class="mx-auto grid h-16 max-w-4xl grid-cols-[1fr_auto_1fr] items-center rounded-full border border-foreground/10 bg-background/80 pl-5 pr-2.5 shadow-[0_8px_32px_-12px_rgba(16,21,27,0.15)] backdrop-blur-xl dark:bg-card/80"
     >
-      <a href="/" class="flex items-center gap-2.5">
-        <img src="/home/crynux_logo.svg" alt="Crynux" class="h-7 w-auto" />
-        <span class="text-lg font-bold tracking-tight">Crynux AI Services</span>
+      <a href="/" class="col-start-1 row-start-1 flex min-w-0 items-center gap-2.5 justify-self-start">
+        <img
+          src="/home/crynux_as_logo_solid_triangle.svg?v=3"
+          alt="Crynux AI Services"
+          class="size-7 object-contain"
+        />
+        <span class="truncate text-lg font-bold tracking-tight">Crynux AI Services</span>
       </a>
 
-      <nav class="hidden items-center gap-7 text-sm font-medium text-muted-foreground md:flex">
+      <nav
+        class="col-start-2 row-start-1 hidden items-center gap-7 text-sm font-medium text-muted-foreground md:flex"
+      >
         <a
           v-for="link in navLinks"
           :key="link.label"
@@ -39,7 +45,7 @@ const emit = defineEmits(['primary'])
         </a>
       </nav>
 
-      <div class="flex items-center gap-1.5">
+      <div class="col-start-3 row-start-1 flex items-center gap-1.5 justify-self-end">
         <ThemeToggle />
         <button
           type="button"

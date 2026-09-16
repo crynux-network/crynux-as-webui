@@ -8,7 +8,11 @@ import { navLinks, socialLinks } from '@/content/home'
     <div class="mx-auto grid max-w-7xl gap-12 px-6 py-16 md:grid-cols-[1fr_auto] md:gap-24">
       <div>
         <div class="flex items-center gap-2.5">
-          <img src="/home/crynux_logo.svg" alt="Crynux" class="h-8 w-auto" />
+          <img
+            src="/home/crynux_as_logo_solid_triangle.svg?v=3"
+            alt="Crynux AI Services"
+            class="size-8 object-contain"
+          />
           <span class="text-xl font-bold tracking-tight">Crynux AI Services</span>
         </div>
         <p class="mt-8 text-xs text-muted-foreground">

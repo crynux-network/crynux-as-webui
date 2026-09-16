@@ -30,8 +30,17 @@ async function signOut() {
       class="flex h-full w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
     >
       <div class="flex h-14 items-center border-b border-sidebar-border px-4">
-        <RouterLink to="/" class="truncate text-sm font-semibold tracking-tight">
-          Crynux AS
+        <RouterLink
+          to="/"
+          class="flex min-w-0 items-center gap-2 text-sm font-semibold tracking-tight"
+        >
+          <img
+            src="/home/crynux_as_logo_solid_triangle.svg?v=3"
+            alt=""
+            aria-hidden="true"
+            class="size-6 shrink-0 object-contain"
+          />
+          <span class="truncate">Crynux AS</span>
         </RouterLink>
       </div>
 

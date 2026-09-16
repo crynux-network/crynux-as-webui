@@ -45,15 +45,14 @@ function shardStyle(shape) {
 
 <template>
   <svg
-    viewBox="0 0 119.38 82.691332"
+    viewBox="0 0 64 64"
     role="img"
-    aria-label="Crynux logo"
+    aria-label="Crynux AI Services logo"
     class="overflow-visible"
     :class="$props.class"
   >
     <g v-for="(shape, index) in shapes" :key="index" :style="shardStyle(shape)">
-      <path v-if="shape.type === 'path'" :d="shape.d" :fill="shape.fill" />
-      <polygon v-else :points="shape.points" :fill="shape.fill" />
+      <path :d="shape.d" :fill="shape.fill" />
     </g>
   </svg>
 </template>

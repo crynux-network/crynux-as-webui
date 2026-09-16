@@ -23,13 +23,17 @@ const emit = defineEmits(['primary'])
       aria-hidden="true"
       class="pointer-events-none absolute -top-40 left-1/2 h-[36rem] w-[64rem] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(10,169,252,0.14),transparent)]"
     />
-    <div class="mx-auto grid max-w-7xl items-center gap-16 px-6 pt-40 pb-20 lg:grid-cols-[7fr_5fr] lg:pt-48">
-      <HomeReveal>
-        <h1 class="text-5xl font-extrabold tracking-tight text-balance md:text-6xl lg:text-7xl">
+    <div
+      class="mx-auto grid max-w-7xl items-center gap-12 px-6 pt-40 pb-20 min-[900px]:grid-cols-[7fr_5fr] min-[900px]:gap-16 min-[900px]:pt-48 xl:grid-cols-2"
+    >
+      <HomeReveal class="text-center min-[900px]:text-left">
+        <h1 class="text-5xl font-extrabold tracking-tight text-balance md:text-6xl xl:text-7xl">
           Simple, Scalable,<br />
           <HomeFancyText>Cost-efficient</HomeFancyText>
         </h1>
-        <div class="mt-24 flex flex-wrap gap-4 md:mt-28">
+        <div
+          class="mt-12 flex flex-wrap justify-center gap-4 md:mt-16 min-[900px]:mt-24 min-[900px]:justify-start"
+        >
           <button
             type="button"
             class="inline-flex items-center justify-center rounded-full bg-primary px-6 py-3 font-semibold text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-50"
@@ -40,7 +44,9 @@ const emit = defineEmits(['primary'])
           </button>
         </div>
       </HomeReveal>
-      <HomeCrynuxLogo class="mx-auto w-64 max-w-full sm:w-80 lg:w-full" />
+      <HomeCrynuxLogo
+        class="mx-auto w-56 max-w-full sm:w-64 min-[900px]:mx-0 min-[900px]:w-80 min-[900px]:justify-self-end xl:w-96"
+      />
     </div>
   </section>
 </template>
