@@ -224,3 +224,86 @@ export function formatGwei(value) {
     maximumFractionDigits: 0,
   }).format(n)
 }
+
+/**
+ * List-row cost-level position against the live queue (or median band).
+ * tone 0..1 runs min→max for color. label is only set when inRange.
+ */
+export function getProjectQueuePosition({
+  priorityGwei,
+  lowestPriorityGwei,
+  highestPriorityGwei,
+  medianPriorityGwei,
+}) {
+  const priority = Number(priorityGwei)
+  if (!(priority > 0)) return null
+
+  let low = Number(lowestPriorityGwei)
+  let high = Number(highestPriorityGwei)
+  let usedMedianBand = false
+  if (!(low > 0 && high > 0)) {
+    const median = Number(medianPriorityGwei)
+    if (!(median > 0)) return null
+    low = median / 2
+    high = median * 2
+    usedMedianBand = true
+  }
+  if (!(high > low)) return null
+
+  const logLow = Math.log(low)
+  const logHigh = Math.log(high)
+  const raw = (Math.log(priority) - logLow) / (logHigh - logLow)
+  const tone = Math.min(1, Math.max(0, raw))
+
+  let inRange
+  let rangeStatus
+  let label
+  if (priority < low) {
+    inRange = false
+    rangeStatus = 'too_low'
+    label = null
+  } else if (priority > high) {
+    inRange = false
+    rangeStatus = 'too_high'
+    label = null
+  } else {
+    inRange = true
+    rangeStatus = 'in_range'
+    label = queuePositionLabel(tone)
+  }
+
+  return {
+    tone,
+    color: queueToneColor(tone),
+    inRange,
+    rangeStatus,
+    label,
+    usedMedianBand,
+  }
+}
+
+const QUEUE_POSITION_LABELS = [
+  'Slowest',
+  'Slower',
+  'Balanced',
+  'Faster',
+  'Fastest',
+]
+
+function queuePositionLabel(tone) {
+  const t = Math.min(1, Math.max(0, Number(tone)))
+  if (t < 0.2) return QUEUE_POSITION_LABELS[0]
+  if (t < 0.4) return QUEUE_POSITION_LABELS[1]
+  if (t < 0.6) return QUEUE_POSITION_LABELS[2]
+  if (t < 0.8) return QUEUE_POSITION_LABELS[3]
+  return QUEUE_POSITION_LABELS[4]
+}
+
+/** Yellow (near queue min) → blue (near queue max). */
+function queueToneColor(tone) {
+  const t = Math.min(1, Math.max(0, Number(tone)))
+  const r = Math.round(245 + (37 - 245) * t)
+  const g = Math.round(158 + (99 - 158) * t)
+  const b = Math.round(11 + (235 - 11) * t)
+  return `rgb(${r}, ${g}, ${b})`
+}

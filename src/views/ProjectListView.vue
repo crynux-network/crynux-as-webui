@@ -9,6 +9,7 @@ import ApiKeyRevealDialog from '@/components/projects/ApiKeyRevealDialog.vue'
 import ProjectListItem from '@/components/projects/ProjectListItem.vue'
 import AccountUsageStats from '@/components/stats/AccountUsageStats.vue'
 import { projectsAPI } from '@/api/v1/projects'
+import { llmAPI } from '@/api/v1/llm'
 import { projectErrorMessage } from '@/lib/project-ui'
 
 const router = useRouter()
@@ -19,6 +20,7 @@ const projectsReady = ref(false)
 const createOpen = ref(false)
 const revealOpen = ref(false)
 const revealedApiKey = ref('')
+const queueConfig = ref(null)
 
 async function loadProjects() {
   loading.value = true
@@ -33,6 +35,22 @@ async function loadProjects() {
     )
   } finally {
     loading.value = false
+  }
+}
+
+async function loadQueueConfig() {
+  try {
+    const data = await llmAPI.getBillingConfig()
+    queueConfig.value = {
+      minPriorityGwei: data?.min_priority_gwei,
+      maxPriorityGwei: data?.max_priority_gwei,
+      medianPriorityGwei: data?.median_priority_gwei,
+      highestPriorityGwei: data?.highest_priority_gwei ?? null,
+      lowestPriorityGwei: data?.lowest_priority_gwei ?? null,
+    }
+  } catch (e) {
+    console.error('Failed to load billing config for project list', e)
+    toast.error('Could not load queue cost level info. Please try again later.')
   }
 }
 
@@ -52,6 +70,7 @@ function onRevealDone() {
 
 onMounted(() => {
   loadProjects()
+  loadQueueConfig()
 })
 </script>
 
@@ -89,6 +108,7 @@ onMounted(() => {
         v-for="project in projects"
         :key="project.id"
         :project="project"
+        :queue-config="queueConfig"
         @open="openProject"
       />
     </div>
