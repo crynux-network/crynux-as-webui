@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
@@ -102,9 +102,20 @@ let copiedFieldTimer = null
 let prioritySaveTimer = null
 let syncingPriority = false
 let syncingAutoControls = false
+let suppressCostLevelAutosave = false
 const COST_LEVEL_TOAST_ID = 'cost-level-save'
 const COST_LEVEL_SAVE_DELAY_MS = 3000
 
+async function beginCostLevelHydration() {
+  suppressCostLevelAutosave = true
+  clearPrioritySaveTimer()
+}
+
+async function endCostLevelHydration() {
+  await nextTick()
+  await nextTick()
+  suppressCostLevelAutosave = false
+}
 const revealOpen = ref(false)
 const revealedApiKey = ref('')
 const deleteOpen = ref(false)
@@ -228,9 +239,14 @@ const queueRangeBar = computed(() => {
 })
 const showQueueRangeBar = computed(() => queueRangeBar.value != null)
 
-watch(projectId, () => {
+watch(projectId, async () => {
   clearPrioritySaveTimer()
-  loadProject()
+  await beginCostLevelHydration()
+  try {
+    await loadProject()
+  } finally {
+    await endCostLevelHydration()
+  }
 })
 
 watch(
@@ -287,6 +303,7 @@ function clearPrioritySaveTimer() {
 
 function schedulePrioritySave() {
   clearPrioritySaveTimer()
+  if (suppressCostLevelAutosave) return
   if (!priorityDirty.value) return
   prioritySaveTimer = setTimeout(() => {
     prioritySaveTimer = null
@@ -404,8 +421,18 @@ async function loadBillingConfig() {
       lowestPriorityGwei.value = null
     }
     if (project.value) {
-      applyPriorityLocal(priorityGwei.value)
-      applyAutoMaxLocal(autoMaxPriorityGwei.value)
+      const alreadySuppressed = suppressCostLevelAutosave
+      if (!alreadySuppressed) {
+        await beginCostLevelHydration()
+      }
+      try {
+        applyPriorityLocal(priorityGwei.value)
+        applyAutoMaxLocal(autoMaxPriorityGwei.value)
+      } finally {
+        if (!alreadySuppressed) {
+          await endCostLevelHydration()
+        }
+      }
     }
   } catch (e) {
     console.error('Failed to load LLM billing config', e)
@@ -602,7 +629,12 @@ async function saveCostLevel() {
   savingPriority.value = true
   try {
     const data = await projectsAPI.update(project.value.id, payload)
-    applyProject(data)
+    await beginCostLevelHydration()
+    try {
+      applyProject(data)
+    } finally {
+      await endCostLevelHydration()
+    }
     if (
       costLevelMode.value !== modeToSave ||
       Number(priorityGwei.value) !== Number(priorityToSave) ||
@@ -619,7 +651,12 @@ async function saveCostLevel() {
       projectErrorMessage(e, 'Could not save cost level. Please try again later.'),
     )
     if (project.value) {
-      applyProject(project.value)
+      await beginCostLevelHydration()
+      try {
+        applyProject(project.value)
+      } finally {
+        await endCostLevelHydration()
+      }
     }
   } finally {
     savingPriority.value = false
@@ -649,10 +686,17 @@ function onDeleted() {
   router.push({ name: 'projects' })
 }
 
-onMounted(() => {
-  loadBillingConfig()
-  loadPricingExamples()
-  loadProject()
+onMounted(async () => {
+  await beginCostLevelHydration()
+  try {
+    await Promise.all([
+      loadBillingConfig(),
+      loadPricingExamples(),
+      loadProject(),
+    ])
+  } finally {
+    await endCostLevelHydration()
+  }
 })
 
 onUnmounted(() => {
@@ -885,14 +929,19 @@ onUnmounted(() => {
             >
               {{ isAutoMode ? 'Auto' : 'Static' }}
             </span>
-            <span
-              class="truncate font-mono text-2xl font-semibold tabular-nums text-primary"
-            >
+            <span class="flex min-w-0 items-baseline gap-x-1.5 font-mono tabular-nums">
               <template v-if="isAutoMode">
-                {{ autoQueuePosition }}% · {{ formatGwei(autoMaxPriorityGwei) }}
+                <span class="text-2xl font-semibold text-sky-600 dark:text-sky-400">
+                  {{ autoQueuePosition }}%
+                </span>
+                <span class="text-base font-medium text-muted-foreground">
+                  / {{ formatGwei(autoMaxPriorityGwei) }}
+                </span>
               </template>
               <template v-else>
-                {{ formatGwei(priorityGwei) }}
+                <span class="text-2xl font-semibold text-primary">
+                  {{ formatGwei(priorityGwei) }}
+                </span>
               </template>
             </span>
           </span>

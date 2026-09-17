@@ -31,7 +31,7 @@ async function signOut() {
     >
       <div class="flex h-14 items-center border-b border-sidebar-border px-4">
         <RouterLink
-          to="/"
+          :to="{ name: 'projects' }"
           class="flex min-w-0 items-center gap-2 text-sm font-semibold tracking-tight"
         >
           <img
@@ -40,7 +40,7 @@ async function signOut() {
             aria-hidden="true"
             class="size-6 shrink-0 object-contain"
           />
-          <span class="truncate">Crynux AS</span>
+          <span class="truncate">Crynux AI Services</span>
         </RouterLink>
       </div>
 

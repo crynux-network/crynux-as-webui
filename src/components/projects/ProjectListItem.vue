@@ -33,6 +33,9 @@ const successDisplay = computed(() => formatCompactNumber(successCount.value))
 const successExact = computed(() => formatExactNumber(successCount.value))
 const failureDisplay = computed(() => formatCompactNumber(failureCount.value))
 const failureExact = computed(() => formatExactNumber(failureCount.value))
+const elevatedRecentFailureRate = computed(
+  () => Boolean(props.project.elevated_recent_failure_rate),
+)
 
 const creditsDisplay = computed(() =>
   formatCompactCredits(props.project.credits_day || '0'),
@@ -107,11 +110,12 @@ const queueRangeStatusClass = computed(() => {
 
 const costLevelDescription = computed(() => {
   if (isAutoMode.value) {
+    const pos = autoQueuePosition.value
     const max = autoMaxDisplay.value
     if (max === '—') {
-      return `Queue position ${autoQueuePosition.value}%. Set a max Cost Level to use Auto.`
+      return `Queue position ${pos}% from min to max. Set a max Cost Level to use Auto.`
     }
-    return `Tracks the live queue at ${autoQueuePosition.value}%, capped at max ${max}.`
+    return `Queue position ${pos}% from min to max. Max Cost Level ${max}.`
   }
   const position = queuePosition.value
   if (!position) return null
@@ -136,7 +140,7 @@ const costLevelTitle = computed(() => {
     const max = autoMaxDisplay.value
     return max === '—'
       ? `Auto · ${autoQueuePosition.value}%`
-      : `Auto · ${autoQueuePosition.value}% · max ${max}`
+      : `Auto · ${autoQueuePosition.value}% / ${max}`
   }
   const gwei = costLevelDisplay.value
   const status = queueRangeStatusText.value
@@ -213,7 +217,10 @@ function formatRelativeTime(unixSeconds) {
             />
             <div class="min-w-0" :title="failureExact">
               <p
-                class="text-3xl font-semibold tabular-nums tracking-tight text-red-600 dark:text-red-400"
+                class="text-3xl font-semibold tabular-nums tracking-tight"
+                :class="elevatedRecentFailureRate
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-muted-foreground'"
               >
                 {{ failureDisplay }}
               </p>
@@ -262,26 +269,32 @@ function formatRelativeTime(unixSeconds) {
           </div>
         </div>
 
-        <div class="mt-4">
+        <div class="mt-4 flex min-w-0 flex-wrap items-baseline gap-x-1.5">
           <p
             class="text-4xl font-semibold tabular-nums tracking-tight"
             :style="!isAutoMode && queuePosition ? { color: queuePosition.color } : undefined"
-            :class="!isAutoMode && queuePosition ? undefined : 'text-muted-foreground'"
+            :class="
+              isAutoMode
+                ? 'text-sky-600 dark:text-sky-400'
+                : !isAutoMode && queuePosition
+                  ? undefined
+                  : 'text-muted-foreground'
+            "
           >
             {{ costLevelDisplay }}
+          </p>
+          <p
+            v-if="isAutoMode"
+            class="text-lg font-medium tabular-nums tracking-tight text-muted-foreground"
+          >
+            / {{ autoMaxDisplay }}
           </p>
         </div>
 
         <template v-if="isAutoMode">
-          <p class="mt-3 text-sm font-medium text-foreground">
-            Queue position
-          </p>
-          <p class="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Max {{ autoMaxDisplay }}
-          </p>
           <p
             v-if="costLevelDescription"
-            class="mt-1 text-xs leading-relaxed text-muted-foreground"
+            class="mt-3 text-xs leading-relaxed text-muted-foreground"
           >
             {{ costLevelDescription }}
           </p>

@@ -381,6 +381,7 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `components/theme/ThemeToggle.vue` | Light/dark mode toggle |
 | `views/CreditsView.vue` | Balance, purchase, purchases and usage history |
 | `views/ProjectListView.vue` | Project list and create flow |
+| `components/projects/ProjectListItem.vue` | Project list card; Failed day count uses red when `elevated_recent_failure_rate` is true, otherwise muted gray |
 | `views/ProjectDetailView.vue` | Project detail, Cost Level, Usage charts, Recent Requests, reset key, delete |
 | `components/stats/ProjectUsageSection.vue` | Project usage charts and model top table |
 | `components/stats/ProjectRecentRequestsSection.vue` | Project recent in-progress and finished LLM request list |
