@@ -225,9 +225,39 @@ export function formatGwei(value) {
   }).format(n)
 }
 
+export function defaultAutoMaxPriorityGwei({
+  highestPriorityGwei,
+  minPriorityGwei,
+}) {
+  const high = Number(highestPriorityGwei)
+  if (Number.isFinite(high) && high > 0) return Math.round(high)
+  const min = Number(minPriorityGwei)
+  if (Number.isFinite(min) && min > 0) return Math.round(min)
+  return 1
+}
+
+export const AUTO_QUEUE_POSITION_MIN = 1
+export const AUTO_QUEUE_POSITION_MAX = 99
+/** Fixed decorative red margin on each side of the Auto queue-position range bar. */
+export const AUTO_QUEUE_POSITION_BAR_MARGIN = 10
+
+export function normalizeAutoQueuePosition(value, fallback = 50) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) {
+    return Math.min(
+      AUTO_QUEUE_POSITION_MAX,
+      Math.max(AUTO_QUEUE_POSITION_MIN, Math.round(Number(fallback)) || 50),
+    )
+  }
+  return Math.min(
+    AUTO_QUEUE_POSITION_MAX,
+    Math.max(AUTO_QUEUE_POSITION_MIN, Math.round(n)),
+  )
+}
+
 /**
  * List-row cost-level position against the live queue (or median band).
- * tone 0..1 runs min→max for color. label is only set when inRange.
+ * Color is a discrete palette from the range status and in-range label.
  */
 export function getProjectQueuePosition({
   priorityGwei,
@@ -274,7 +304,7 @@ export function getProjectQueuePosition({
 
   return {
     tone,
-    color: queueToneColor(tone),
+    color: queueStatusColor(rangeStatus, label),
     inRange,
     rangeStatus,
     label,
@@ -290,6 +320,17 @@ const QUEUE_POSITION_LABELS = [
   'Fastest',
 ]
 
+/** Discrete colors: low side red, mid blue, high side yellow. */
+const QUEUE_STATUS_COLORS = {
+  too_low: 'rgb(185, 28, 28)',
+  Slowest: 'rgb(220, 38, 38)',
+  Slower: 'rgb(239, 68, 68)',
+  Balanced: 'rgb(37, 99, 235)',
+  Faster: 'rgb(202, 138, 4)',
+  Fastest: 'rgb(234, 179, 8)',
+  too_high: 'rgb(245, 158, 11)',
+}
+
 function queuePositionLabel(tone) {
   const t = Math.min(1, Math.max(0, Number(tone)))
   if (t < 0.2) return QUEUE_POSITION_LABELS[0]
@@ -299,11 +340,9 @@ function queuePositionLabel(tone) {
   return QUEUE_POSITION_LABELS[4]
 }
 
-/** Yellow (near queue min) → blue (near queue max). */
-function queueToneColor(tone) {
-  const t = Math.min(1, Math.max(0, Number(tone)))
-  const r = Math.round(245 + (37 - 245) * t)
-  const g = Math.round(158 + (99 - 158) * t)
-  const b = Math.round(11 + (235 - 11) * t)
-  return `rgb(${r}, ${g}, ${b})`
+function queueStatusColor(rangeStatus, label) {
+  if (rangeStatus === 'too_low') return QUEUE_STATUS_COLORS.too_low
+  if (rangeStatus === 'too_high') return QUEUE_STATUS_COLORS.too_high
+  if (label && QUEUE_STATUS_COLORS[label]) return QUEUE_STATUS_COLORS[label]
+  return QUEUE_STATUS_COLORS.Balanced
 }

@@ -53,7 +53,7 @@ const emit = defineEmits(['primary'])
           :disabled="loading"
           @click="emit('primary')"
         >
-          {{ authenticated ? 'Dashboard' : loading ? 'Connecting…' : 'Start for Free' }}
+          {{ authenticated ? 'Dashboard' : loading ? 'Connecting…' : 'Connect' }}
         </button>
       </div>
     </div>

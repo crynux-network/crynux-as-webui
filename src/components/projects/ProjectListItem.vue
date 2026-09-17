@@ -7,7 +7,11 @@ import {
   formatExactCredits,
   formatExactNumber,
 } from '@/lib/usage-stats-ui'
-import { formatGwei, getProjectQueuePosition } from '@/lib/llm-billing'
+import {
+  formatGwei,
+  getProjectQueuePosition,
+  normalizeAutoQueuePosition,
+} from '@/lib/llm-billing'
 
 const props = defineProps({
   project: {
@@ -24,7 +28,6 @@ const emit = defineEmits(['open'])
 
 const successCount = computed(() => Number(props.project.success_count_day || 0))
 const failureCount = computed(() => Number(props.project.failure_count_day || 0))
-const hasActivity = computed(() => successCount.value > 0 || failureCount.value > 0)
 
 const successDisplay = computed(() => formatCompactNumber(successCount.value))
 const successExact = computed(() => formatExactNumber(successCount.value))
@@ -38,7 +41,24 @@ const creditsExact = computed(() =>
   formatExactCredits(props.project.credits_day || '0'),
 )
 
-const costLevelDisplay = computed(() => formatGwei(props.project.priority_gwei))
+const isAutoMode = computed(
+  () => String(props.project.cost_level_mode || 'static') === 'auto',
+)
+
+const autoQueuePosition = computed(() =>
+  normalizeAutoQueuePosition(props.project.auto_queue_position, 50),
+)
+
+const autoMaxDisplay = computed(() =>
+  formatGwei(props.project.auto_max_priority_gwei),
+)
+
+const costLevelDisplay = computed(() => {
+  if (isAutoMode.value) {
+    return `${autoQueuePosition.value}%`
+  }
+  return formatGwei(props.project.priority_gwei)
+})
 
 const lastRequestLabel = computed(() => {
   if (props.project.last_request_at == null) return 'No requests yet'
@@ -51,7 +71,7 @@ const lastRequestExact = computed(() => {
 })
 
 const queuePosition = computed(() => {
-  if (!props.queueConfig) return null
+  if (isAutoMode.value || !props.queueConfig) return null
   return getProjectQueuePosition({
     priorityGwei: props.project.priority_gwei,
     lowestPriorityGwei: props.queueConfig.lowestPriorityGwei,
@@ -60,7 +80,16 @@ const queuePosition = computed(() => {
   })
 })
 
+const modeTagText = computed(() => (isAutoMode.value ? 'Auto' : 'Static'))
+
+const modeTagClass = computed(() =>
+  isAutoMode.value
+    ? 'bg-sky-500/10 text-sky-700 dark:text-sky-400'
+    : 'border border-border bg-muted/50 text-foreground',
+)
+
 const queueRangeStatusText = computed(() => {
+  if (isAutoMode.value) return null
   const pos = queuePosition.value
   if (!pos) return null
   if (pos.rangeStatus === 'too_low') return 'Too low'
@@ -77,6 +106,13 @@ const queueRangeStatusClass = computed(() => {
 })
 
 const costLevelDescription = computed(() => {
+  if (isAutoMode.value) {
+    const max = autoMaxDisplay.value
+    if (max === '—') {
+      return `Queue position ${autoQueuePosition.value}%. Set a max Cost Level to use Auto.`
+    }
+    return `Tracks the live queue at ${autoQueuePosition.value}%, capped at max ${max}.`
+  }
   const position = queuePosition.value
   if (!position) return null
   if (position.rangeStatus === 'too_low') {
@@ -96,6 +132,12 @@ const costLevelDescription = computed(() => {
 })
 
 const costLevelTitle = computed(() => {
+  if (isAutoMode.value) {
+    const max = autoMaxDisplay.value
+    return max === '—'
+      ? `Auto · ${autoQueuePosition.value}%`
+      : `Auto · ${autoQueuePosition.value}% · max ${max}`
+  }
   const gwei = costLevelDisplay.value
   const status = queueRangeStatusText.value
   if (!status) return `Cost level ${gwei}`
@@ -121,93 +163,76 @@ function formatRelativeTime(unixSeconds) {
     const d = Math.floor(diffSec / 86400)
     return `${d}d ago`
   }
-  return new Date(then).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-  })
-}
-
-function onOpen() {
-  emit('open', props.project)
+  return new Date(then).toLocaleDateString()
 }
 </script>
 
 <template>
   <button
     type="button"
-    class="group w-full overflow-hidden rounded-xl border border-border bg-background text-left transition-colors hover:border-foreground/20 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    @click="onOpen"
+    class="group w-full overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:bg-accent/40"
+    @click="emit('open', project)"
   >
-    <div class="flex items-start justify-between gap-3 px-5 py-4">
+    <div class="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
       <div class="min-w-0">
-        <h2 class="truncate text-lg font-semibold tracking-tight text-foreground">
+        <h2 class="truncate text-base font-semibold tracking-tight text-foreground">
           {{ project.name }}
         </h2>
         <p
-          class="mt-1 truncate text-xs text-muted-foreground"
+          class="mt-1 text-xs text-muted-foreground"
           :title="lastRequestExact || undefined"
         >
           {{ lastRequestLabel }}
         </p>
       </div>
       <ChevronRight
-        class="mt-1 size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+        class="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
       />
     </div>
 
-    <div
-      class="grid border-t border-border md:grid-cols-[minmax(0,1.35fr)_minmax(15rem,0.65fr)]"
-    >
+    <div class="grid md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
       <div
-        class="grid min-w-0 gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,0.42fr)]"
+        class="grid gap-4 p-5 sm:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] sm:items-stretch"
       >
-        <div class="min-w-0 rounded-lg bg-primary/5 px-4 py-3">
+        <div class="min-w-0 rounded-lg bg-muted/50 px-4 py-3">
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            Today’s requests
+            Requests today
           </p>
-
-          <div class="mt-3 flex items-end">
-            <div class="min-w-0 flex-1 pr-5" :title="successExact">
+          <div class="mt-3 flex items-end gap-5">
+            <div class="min-w-0" :title="successExact">
               <p
-                class="text-3xl font-semibold tabular-nums tracking-tight"
-                :class="successCount > 0 ? 'text-primary' : 'text-muted-foreground'"
+                class="text-3xl font-semibold tabular-nums tracking-tight text-sky-600 dark:text-sky-400"
               >
                 {{ successDisplay }}
               </p>
-              <p class="mt-1 text-xs font-medium text-muted-foreground">
-                Successful
-              </p>
+              <p class="mt-1 text-xs text-muted-foreground">Success</p>
             </div>
-
             <div
-              class="min-w-0 flex-1 border-l border-border/70 pl-5"
-              :title="failureExact"
-            >
+              class="mb-1 h-8 w-px shrink-0 bg-border"
+              aria-hidden="true"
+            />
+            <div class="min-w-0" :title="failureExact">
               <p
-                class="text-2xl font-semibold tabular-nums tracking-tight"
-                :class="failureCount > 0 ? 'text-destructive' : 'text-muted-foreground'"
+                class="text-3xl font-semibold tabular-nums tracking-tight text-red-600 dark:text-red-400"
               >
                 {{ failureDisplay }}
               </p>
-              <p class="mt-1 text-xs font-medium text-muted-foreground">
-                Failed
-              </p>
+              <p class="mt-1 text-xs text-muted-foreground">Failed</p>
             </div>
           </div>
         </div>
 
         <div
-          class="min-w-0 rounded-lg bg-muted/50 px-4 py-3"
+          class="flex min-w-0 flex-col justify-center border-t border-border pt-4 sm:border-t-0 sm:border-l sm:pl-5 sm:pt-0"
           :title="creditsExact"
         >
-          <p class="text-xs font-medium leading-snug text-muted-foreground">
-            Credits used today
-          </p>
           <p
-            class="mt-3 text-2xl font-semibold tabular-nums tracking-tight"
-            :class="hasActivity ? 'text-foreground' : 'text-muted-foreground'"
+            class="text-3xl font-semibold tabular-nums tracking-tight text-foreground/70"
           >
             {{ creditsDisplay }}
+          </p>
+          <p class="mt-1 text-xs text-muted-foreground">
+            Credits used today
           </p>
         </div>
       </div>
@@ -220,37 +245,61 @@ function onOpen() {
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">
             Cost level
           </p>
-          <span
-            v-if="queueRangeStatusText"
-            class="rounded-full px-2 py-0.5 text-[11px] font-medium"
-            :class="queueRangeStatusClass"
-          >
-            {{ queueRangeStatusText }}
-          </span>
+          <div class="flex shrink-0 items-center gap-1.5">
+            <span
+              class="rounded-full px-2 py-0.5 text-[11px] font-medium"
+              :class="modeTagClass"
+            >
+              {{ modeTagText }}
+            </span>
+            <span
+              v-if="queueRangeStatusText"
+              class="rounded-full px-2 py-0.5 text-[11px] font-medium"
+              :class="queueRangeStatusClass"
+            >
+              {{ queueRangeStatusText }}
+            </span>
+          </div>
         </div>
 
         <div class="mt-4">
           <p
             class="text-4xl font-semibold tabular-nums tracking-tight"
-            :style="queuePosition ? { color: queuePosition.color } : undefined"
-            :class="queuePosition ? undefined : 'text-muted-foreground'"
+            :style="!isAutoMode && queuePosition ? { color: queuePosition.color } : undefined"
+            :class="!isAutoMode && queuePosition ? undefined : 'text-muted-foreground'"
           >
             {{ costLevelDisplay }}
           </p>
         </div>
 
-        <p
-          v-if="queuePosition?.label"
-          class="mt-3 text-sm font-medium text-foreground"
-        >
-          {{ queuePosition.label }}
-        </p>
-        <p
-          v-if="costLevelDescription"
-          class="mt-1 text-xs leading-relaxed text-muted-foreground"
-        >
-          {{ costLevelDescription }}
-        </p>
+        <template v-if="isAutoMode">
+          <p class="mt-3 text-sm font-medium text-foreground">
+            Queue position
+          </p>
+          <p class="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Max {{ autoMaxDisplay }}
+          </p>
+          <p
+            v-if="costLevelDescription"
+            class="mt-1 text-xs leading-relaxed text-muted-foreground"
+          >
+            {{ costLevelDescription }}
+          </p>
+        </template>
+        <template v-else>
+          <p
+            v-if="queuePosition?.label"
+            class="mt-3 text-sm font-medium text-foreground"
+          >
+            {{ queuePosition.label }}
+          </p>
+          <p
+            v-if="costLevelDescription"
+            class="mt-1 text-xs leading-relaxed text-muted-foreground"
+          >
+            {{ costLevelDescription }}
+          </p>
+        </template>
       </div>
     </div>
   </button>

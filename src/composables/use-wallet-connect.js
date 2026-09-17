@@ -1,11 +1,10 @@
 import { useRouter } from 'vue-router'
 import { getConnection, watchConnection } from '@wagmi/core'
-import { useAppKit } from '@reown/appkit/vue'
 import { useAuthStore } from '@/stores/auth'
 import { useWalletStore } from '@/stores/wallet'
-import { hasReownProjectId, wagmiConfig } from '@/lib/appkit'
+import { hasReownProjectId, initAppKit, wagmiConfig } from '@/lib/appkit'
 
-function waitForConnectedAccount(timeoutMs = 120000) {
+function waitForConnectedAccount(appKit, timeoutMs = 120000) {
   return new Promise((resolve) => {
     const current = getConnection(wagmiConfig)
     if (current.isConnected && current.address) {
@@ -13,19 +12,56 @@ function waitForConnectedAccount(timeoutMs = 120000) {
       return
     }
 
+    let settled = false
+    let sawModalOpen = appKit.getState().open === true
+
+    const finish = (account) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      unwatchConn()
+      unsubModal()
+      resolve(account)
+    }
+
     const timer = setTimeout(() => {
-      unwatch()
-      resolve(getConnection(wagmiConfig))
+      finish(getConnection(wagmiConfig))
     }, timeoutMs)
 
-    const unwatch = watchConnection(wagmiConfig, {
+    const unwatchConn = watchConnection(wagmiConfig, {
       onChange(data) {
         if (data.isConnected && data.address) {
-          clearTimeout(timer)
-          unwatch()
-          resolve(data)
+          finish(data)
+          return
+        }
+
+        if (
+          sawModalOpen &&
+          !appKit.getState().open &&
+          !data.isConnecting &&
+          !data.isReconnecting
+        ) {
+          finish(data)
         }
       }
+    })
+
+    const unsubModal = appKit.subscribeState((state) => {
+      if (state.open) {
+        sawModalOpen = true
+        return
+      }
+      if (!sawModalOpen) return
+
+      const account = getConnection(wagmiConfig)
+      if (account.isConnected && account.address) {
+        finish(account)
+        return
+      }
+      if (account.isConnecting || account.isReconnecting) {
+        return
+      }
+      finish(account)
     })
   })
 }
@@ -43,9 +79,9 @@ export function useWalletConnect() {
     try {
       let account = getConnection(wagmiConfig)
       if (!account.isConnected || !account.address) {
-        const { open } = useAppKit()
-        await open({ view: 'Connect' })
-        account = await waitForConnectedAccount()
+        const appKit = initAppKit()
+        await appKit.open({ view: 'Connect' })
+        account = await waitForConnectedAccount(appKit)
       }
 
       if (!account.isConnected || !account.address) {

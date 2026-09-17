@@ -2,6 +2,22 @@
 
 Before making any changes, consult [`./architecture.md`](./architecture.md) for the frontend architecture. All modifications must be consistent with the existing design.
 
+### Cost Level static layout
+
+When editing the project Cost Level panel in `src/views/ProjectDetailView.vue`, static-mode control layout MUST follow `architecture.md` section **Static Cost Level control layout**. After the change, verify:
+
+1. Queue range bar width matches the slider track left and right edges.
+2. Left numeric box stays left-aligned and tall (`h-20`) with primary flex-centered digits; right slider is about 80% of the remaining row width and horizontally centered in that space, with a tighter range-bar height.
+3. Larger gaps: intro text to mode cards (`mb-10`), mode cards to control row (`mb-20`), control row to example tables (`mb-20`).
+
+### Cost Level auto layout
+
+When editing auto-mode controls in `src/views/ProjectDetailView.vue`, layout MUST follow `architecture.md` section **Auto Cost Level control layout**. After the change, verify:
+
+1. Queue position and Max Cost Level are two bordered groups with clear titles and larger spacing between groups.
+2. Each group has a tall left input and an 80%-width centered dual-bar block.
+3. Queue position slider is limited to `[1, 99]` with a fixed symmetric red–blue–red bar; Max Cost Level reuses the live Current queue range bar.
+
 ## Documentation Index
 
 | Document | Description |
