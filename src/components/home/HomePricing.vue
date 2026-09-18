@@ -4,7 +4,6 @@ import HomeReveal from '@/components/home/HomeReveal.vue'
 import { Slider } from '@/components/ui/slider'
 import {
   buildTokenRatioOptions,
-  formatTokenRatio,
   sliderIndexToTokenRatio,
   tokenRatioToSliderIndex,
 } from '@/lib/token-ratio'
@@ -15,6 +14,14 @@ const sliderIndex = ref([tokenRatioToSliderIndex(1, tokenRatioOptions)])
 const currentTokenRatio = computed(() =>
   sliderIndexToTokenRatio(sliderIndex.value[0], tokenRatioOptions),
 )
+
+const currentSettingLabel = computed(() => {
+  const maxIndex = Math.max(1, tokenRatioOptions.length - 1)
+  const ratio = sliderIndex.value[0] / maxIndex
+  if (ratio < 1 / 3) return 'Cheaper'
+  if (ratio < 2 / 3) return 'Balanced'
+  return 'Faster'
+})
 
 const exampleRows = [
   {
@@ -77,8 +84,8 @@ const pricingRows = computed(() =>
               <p class="mt-1 text-sm text-white/50">Input and output tokens</p>
             </div>
             <div>
-              <p class="text-2xl font-bold text-white">0.1×–10×</p>
-              <p class="mt-1 text-sm text-white/50">Adjust anytime</p>
+              <p class="text-2xl font-bold text-white">Cost Level</p>
+              <p class="mt-1 text-sm text-white/50">Per project</p>
             </div>
           </div>
         </HomeReveal>
@@ -94,8 +101,8 @@ const pricingRows = computed(() =>
                   Drag to compare example Credits
                 </p>
               </div>
-              <p class="font-mono text-4xl font-semibold tabular-nums text-primary">
-                {{ formatTokenRatio(currentTokenRatio) }}×
+              <p class="text-4xl font-semibold text-primary">
+                {{ currentSettingLabel }}
               </p>
             </div>
 
@@ -179,7 +186,7 @@ const pricingRows = computed(() =>
 
             <p class="mt-4 text-xs leading-relaxed text-white/40">
               Illustrative values. Actual charges depend on the selected model,
-              execution time, VRAM, and slider setting.
+              execution time, VRAM, and Cost Level.
             </p>
           </div>
         </HomeReveal>
