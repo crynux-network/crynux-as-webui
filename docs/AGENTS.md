@@ -23,6 +23,7 @@ When editing auto-mode controls in `src/views/ProjectDetailView.vue`, layout MUS
 | Document | Description |
 |----------|-------------|
 | [architecture.md](./architecture.md) | Technical architecture: Vue app layers, directory layout, Pinia stores, wallet login via Reown AppKit and Crynux AS JWT, API client, dashboard routing and layout |
+| [layout.md](./layout.md) | UI layout and typography: title line wrapping and information layout for lists and cards |
 
 ## Doc Update Requirements
 

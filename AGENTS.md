@@ -22,6 +22,10 @@ Client-side input validation errors in forms and dialogs MAY remain inline next 
 
 When implementing page components in Vue, use shadcn-vue components and Tailwind utilities by default. Prefer existing `components/ui` pieces before adding new UI primitives.
 
+### UI Layout
+
+UI design and implementation MUST follow [`docs/layout.md`](./docs/layout.md). That document covers title line wrapping and information layout for lists and cards.
+
 ### API Layer
 
 Authenticated Crynux AS calls MUST go through `src/api/v1/v1.js` so the Bearer token interceptor and 401 handling apply. New endpoint modules MUST follow the existing `BaseApi` + domain module pattern under `src/api/v1/`.

@@ -32,7 +32,7 @@ const emit = defineEmits(['primary'])
           <HomeFancyText>Cost-efficient</HomeFancyText>
         </h1>
         <div
-          class="mt-12 flex flex-wrap justify-center gap-4 md:mt-16 min-[900px]:mt-24 min-[900px]:justify-start"
+          class="mt-12 flex flex-col items-center gap-3 md:mt-16 min-[900px]:mt-24 min-[900px]:items-start"
         >
           <button
             type="button"
@@ -42,6 +42,12 @@ const emit = defineEmits(['primary'])
           >
             {{ authenticated ? 'Dashboard' : loading ? 'Connecting…' : 'Start for Free' }}
           </button>
+          <p
+            v-if="!authenticated && !loading"
+            class="whitespace-nowrap text-sm leading-relaxed text-muted-foreground"
+          >
+            Connect your wallet to claim your free usage credits
+          </p>
         </div>
       </HomeReveal>
       <HomeCrynuxLogo
