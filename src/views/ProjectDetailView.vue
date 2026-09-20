@@ -36,6 +36,7 @@ import {
   PROJECT_API_DOCS,
   projectChatCompletionsUrl,
   projectLlmBaseUrl,
+  projectModelsUrl,
   projectRawTaskUrl,
   projectResponsesUrl,
 } from '@/lib/project-url'
@@ -156,6 +157,14 @@ const apiGuideItems = computed(() => {
       docsUrl: PROJECT_API_DOCS.raw_task,
       description:
         'Crynux raw task API. Submit task parameters directly for supported task types such as text-to-image, text-to-text, and fine-tuning, without the OpenAI request format.',
+    },
+    {
+      id: 'models',
+      label: 'Models',
+      url: token ? projectModelsUrl(token) : '',
+      docsUrl: PROJECT_API_DOCS.models,
+      description:
+        'OpenAI-compatible Models API. Lists LLM models currently active on the Crynux Network. This list is not a hard limit: any HuggingFace model that works with transformers can be used if enough VRAM is available, and models not listed yet may need a first warm-up request.',
     },
   ]
 })

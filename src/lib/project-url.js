@@ -17,6 +17,10 @@ export function projectRawTaskUrl(endpointToken) {
   return `${projectLlmBaseUrl(endpointToken)}/tasks`
 }
 
+export function projectModelsUrl(endpointToken) {
+  return `${projectLlmBaseUrl(endpointToken)}/models`
+}
+
 export const PROJECT_API_DOCS = {
   chat_completions:
     'https://docs.crynux.io/application-development/how-to-run-llm-using-crynux-network',
@@ -24,4 +28,6 @@ export const PROJECT_API_DOCS = {
     'https://docs.crynux.io/application-development/how-to-run-llm-using-crynux-network/responses-api',
   raw_task:
     'https://docs.crynux.io/application-development/execute-tasks',
+  models:
+    'https://docs.crynux.io/application-development/how-to-run-llm-using-crynux-network/supported-models',
 }
