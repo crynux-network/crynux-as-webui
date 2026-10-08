@@ -50,6 +50,7 @@ src/
 ├── api/                       # REST API clients
 │   ├── api-error.js           # Typed API error classes
 │   ├── base-api.js            # Shared API base
+│   ├── project-private.js     # Project private LLM/Raw Task client (JWT)
 │   └── v1/
 │       ├── v1.js              # Axios client with auth interceptor
 │       ├── auth.js            # Wallet login API
@@ -64,7 +65,7 @@ src/
 │   ├── theme/
 │   │   └── ThemeToggle.vue    # Light/dark mode toggle
 │   ├── credits/               # Purchase dialog
-│   ├── projects/              # Project dialogs (create, reveal key, reset, delete, rename)
+│   ├── projects/              # Project dialogs and Playground
 │   └── ui/                    # shadcn-vue generated components
 ├── composables/
 │   └── use-wallet-connect.js  # Connect modal → auth → optional redirect
@@ -150,40 +151,7 @@ Public homepage static assets live under `public/home/` (brand SVG and integrati
 
 ### Project management views
 
-- `ProjectListView` loads `GET /v1/projects`, creates projects via `POST /v1/projects`, and opens `ApiKeyRevealDialog` when the create response includes a one-time plaintext `api_key`. Each list row MUST distinguish Cost Level modes: static rows show a `Static` mode tag, the stored `priority_gwei`, and queue-range status; auto rows show an `Auto` mode tag, `auto_queue_position` as a percent, and `auto_max_priority_gwei` as Max.
-- `ProjectDetailView` presents two primary sections: a muted LLM API panel (base URL, API key prefix, reset key; rename/delete via overflow menu) and a Cost Level panel. The Cost Level panel MUST support modes `static` and `auto` with a short explanation for each. Mode and both setting sets MUST persist independently through partial `PUT /v1/projects/:id` after 3 seconds without further changes. Static mode MUST use a logarithmic Gwei slider and numeric input bound to `priority_gwei`, with hard bounds from `GET /v1/llm/billing_config`, plus the existing queue range bar under the slider when live bounds are present. Auto mode MUST use two dual-bar control groups: Queue position (`auto_queue_position` clamped to `[1, 99]` in the WebUI) and Max Cost Level (`auto_max_priority_gwei` with the live Current queue range bar). When a project first enters Auto without a stored cap, the WebUI MUST initialize the cap from current queue max or `min_priority_gwei` and save it with the mode. The panel MUST show two example tables built from `GET /v1/llm/pricing_examples` plus `billing_config`: a Credits table with `Model`, `1M Input`, and `1M Output` columns for separate 1M-token unit prices without `constant_seconds`; and an execution-time table with `Model`, `Input`, `Output`, and `Seconds` for a typical call of `time_prompt_tokens=512` input and `time_completion_tokens=2048` output, including `constant_seconds`, not scaled by Cost Level. Static Credits examples MUST use `priority_gwei` and title `Credits per 1M tokens`. Auto Credits examples MUST use `auto_max_priority_gwei` and title `Maximum Credits per 1M tokens`. Cost-level save feedback uses a single replaceable toast. Rename MUST send only `name`. Below Cost Level, `ProjectUsageSection` MUST show project usage charts from `GET /v1/projects/:id/stats`, `GET /v1/projects/:id/stats/completion-duration`, and `GET /v1/projects/:id/stats/models`. Below Usage, `ProjectRecentRequestsSection` MUST list recent in-progress and finished requests from `GET /v1/projects/:id/requests` with columns Status, Model, VRAM, Input, Output, Duration, Cost Level, Credits, and Time. Status MUST be shown as an icon only: `Clock` for `queued`, `CircleDot` for `in_progress`, `CheckCircle2` for `success`, and `XCircle` for `failed`, with the corresponding status label available to assistive technology. Status icons MUST NOT use animation. In-progress rows MUST show `—` for Input, Output, Duration, and Credits. Duration for finished rows MUST display `Math.round(duration_ms / 1000)` as an integer second count with an `s` suffix. Row keys MUST use `source` and `id`. While any listed row has status `queued` or `in_progress`, the section MUST refresh every 5 seconds; the timer MUST stop when no such rows remain or the component unmounts. The requests list MUST NOT send `limit` or `offset`. Load failures for Usage and Recent Requests MUST use `vue-sonner` toast messages that tell the user to try again later.
-- Project data is page state loaded through `projectsAPI`. There is no Pinia project store.
-- Plaintext API keys MUST NOT be persisted in local storage or route state after the reveal dialog closes.
-
-#### Static Cost Level control layout
-
-When mode is `static`, the Cost Level controls MUST use this layout:
-
-1. The numeric `priority_gwei` input MUST sit on the left of the control group.
-2. The logarithmic slider MUST sit to the right of the numeric input, with `Cheaper` to the left of the slider track and `Faster` to the right of the slider track.
-3. The queue range bar MUST sit directly under the slider track when live queue bounds are present.
-4. The queue range bar's horizontal track MUST share the same width and the same left/right edges as the slider track (`SliderTrack`). The range bar MUST NOT extend under `Cheaper`, `Faster`, or the numeric input. The range bar MUST sit in the same column as the Slider root and MUST NOT add horizontal padding or inset relative to that column. Thumb overhang MUST NOT change the range bar width.
-5. The numeric `priority_gwei` control MUST use a larger type size than the slider side labels and MUST use the primary highlight text color. Its outer bordered box MUST use a tall fixed control height (`h-20`) with flexbox-centered digits around a natural-height input.
-6. The digits MUST be vertically centered inside that outer box. The implementation MUST NOT rely on a tall native `<input>` height plus line-height to center the text.
-7. The numeric box MUST stay left-aligned in the panel row. The slider-plus-range-bar block MUST occupy about 80% of the remaining row width to the right of the numeric box and MUST be horizontally centered in that remaining space. The slider block MUST be cross-axis centered with the numeric box. The queue range bar MUST size to its visible track and Current queue min / Current queue max labels without extra empty height below the labels.
-8. Spacing above the mode cards MUST use `mb-10` after the intro text. Spacing from the mode cards to the control row MUST use `mb-20`. Spacing from the control row to the example tables MUST use `mb-20`.
-9. Queue range bar colors and markers MUST follow the Cost Level WebUI rules in Crynux AS `credits-billing.md`: Current queue min and Current queue max labels under the track, blue segment between the mapped queue bounds, red outside that segment.
-10. The Cost Level panel intro above the mode cards MUST state that Cost Level controls how many Credits each request spends and how long tasks wait in the queue. That sentence is panel-level intro copy and MUST NOT be placed inside a mode card. Mode cards MUST place Auto on the left and Static on the right. Auto card copy MUST state that the system adjusts Cost Level to the chosen queue position, that Credits for the same task can change, and that Credits never exceed the set maximum. Static card copy MUST state that the same task always spends the same Credits and that tasks may wait too long in the queue. User-facing intro and mode card copy MUST NOT mention Gwei or task fee.
-11. When the Cost Level panel is collapsed, the header preview MUST show a mode tag (`Auto` or `Static`) plus the setting values: Auto as `position% · max`, Static as the single `priority_gwei` value.
-
-Any change to the static Cost Level control markup in `ProjectDetailView.vue` MUST be checked against this layout subsection before finishing the change.
-
-#### Auto Cost Level control layout
-
-When mode is `auto`, the Cost Level controls MUST follow Crynux AS `credits-billing.md` Auto controls rules and MUST use this layout:
-
-1. Two separate bordered groups MUST appear in order: `Queue position`, then `Max Cost Level`. Vertical spacing between groups MUST be larger than spacing inside one group. The Queue position group description MUST state that when each task is sent, the system reads the current queue min and max Cost Level and sets this request's Cost Level from the configured position.
-2. Each group MUST use a left tall numeric input (`h-20`, primary digits, flex-centered) and a right dual-bar block at about 80% of the remaining row width, horizontally centered.
-3. Queue position: linear slider with `min=1` and `max=99`; fixed symmetric red–blue–red bar under the slider with blue from 10% to 90% of the track; marker labels `Queue min` and `Queue max`. The slider track MUST be inset so value `1` aligns with `Queue min` and value `99` aligns with `Queue max`. The WebUI MUST clamp stored and edited values into `[1, 99]`.
-4. Max Cost Level: logarithmic slider with `Cheaper` / `Faster` labels and the same live Current queue min / Current queue max range bar rules as Static mode.
-5. Spacing from the mode cards to the Auto control block and from the Auto control block to the example tables MUST use `mb-20`.
-
-Any change to the auto Cost Level control markup in `ProjectDetailView.vue` MUST be checked against this layout subsection before finishing the change.
+Project list, project detail, Cost Level, Playground, usage, and recent-requests behavior MUST follow [project-management.md](./project-management.md).
 
 ---
 
@@ -295,6 +263,13 @@ optional router.push(redirect)   e.g. { name: 'projects' }
 - Successful responses resolve to `response.data.data`
 - HTTP 401 clears session/wallet state and navigates to `/` via `apiUnauthorizedErrorHandler` set in `main.js`
 
+### Project private client (`api/project-private.js`)
+
+- Base URL: `config.json` → `as_url` + `/api/<endpoint_token>/v1`
+- Uses the same JWT session token as `V1Client`
+- Calls OpenAI-compatible and Raw Task private endpoints for the project Playground
+- OpenAI-shaped responses MUST be returned as the HTTP JSON body; Raw Task create/status responses MUST use the management `data` field; image downloads MUST return PNG blobs
+
 ### Endpoints used
 
 | API module | Method | Path | Auth |
@@ -312,6 +287,12 @@ optional router.push(redirect)   e.g. { name: 'projects' }
 | `projects.js` | `resetApiKey` | `POST /projects/:id/api_key/reset` | Yes |
 | `llm.js` | `getBillingConfig` | `GET /llm/billing_config` | Yes |
 | `llm.js` | `getPricingExamples` | `GET /llm/pricing_examples` | Yes |
+| `project-private.js` | `listModels` | `GET /api/<endpoint_token>/v1/models` | JWT |
+| `project-private.js` | `listImageModels` | `GET /api/<endpoint_token>/v1/models/image` | JWT |
+| `project-private.js` | `chatCompletions` | `POST /api/<endpoint_token>/v1/chat/completions` | JWT |
+| `project-private.js` | `createInferenceTask` | `POST /api/<endpoint_token>/v1/inference_tasks` | JWT |
+| `project-private.js` | `getInferenceTask` | `GET /api/<endpoint_token>/v1/inference_tasks/:id` | JWT |
+| `project-private.js` | `getImageBlob` | `GET /api/<endpoint_token>/v1/inference_tasks/:id/images/:index` | JWT |
 
 Further account APIs MUST follow the same `V1Client` + module class pattern.
 
@@ -366,6 +347,7 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `stores/auth.js` | JWT session and `authenticate()` |
 | `composables/use-wallet-connect.js` | Connect + login + redirect |
 | `api/v1/v1.js` | Axios client and auth header |
+| `api/project-private.js` | Project private LLM/Raw Task client for Playground |
 | `api/v1/auth.js` | Login API |
 | `api/v1/account.js` | Balance, purchases, charges |
 | `api/v1/purchase.js` | Purchase networks config |
@@ -373,7 +355,7 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `router/index.js` | Routes and `requiresAuth` guard |
 | `components/layout/DashboardLayout.vue` | Dashboard shell |
 | `components/credits/*` | Purchase dialog |
-| `components/projects/*` | Create, API key reveal, reset, rename, and delete dialogs |
+| `components/projects/*` | Create, API key reveal, reset, rename, delete dialogs, and Playground |
 | `components/ui/sonner` | Global toast notifications via `vue-sonner` |
 | `views/HomeView.vue` | Public marketing homepage and wallet connect entry |
 | `components/home/*` | Homepage header, hero, services, interactive Cost Level pricing example, integrations, highlights, use cases, CTA, footer |
@@ -382,7 +364,9 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `views/CreditsView.vue` | Balance, purchase, purchases and usage history |
 | `views/ProjectListView.vue` | Project list and create flow |
 | `components/projects/ProjectListItem.vue` | Project list card; Failed day count uses red when `elevated_recent_failure_rate` is true, otherwise muted gray |
-| `views/ProjectDetailView.vue` | Project detail, Cost Level, Usage charts, Recent Requests, reset key, delete |
+| `views/ProjectDetailView.vue` | Project detail, Cost Level, Playground, Usage charts, Recent Requests, reset key, delete |
+| `components/projects/ProjectPlaygroundSection.vue` | Collapsible Playground shell with Chat and Image tabs |
+| `components/projects/playground/*` | Chat and Image generation Playground panels |
 | `components/stats/ProjectUsageSection.vue` | Project usage charts and model top table |
 | `components/stats/ProjectRecentRequestsSection.vue` | Project recent in-progress and finished LLM request list |
 | `config.example.json` | Committed template for `config.json` |

@@ -1,10 +1,10 @@
 ## Full Picture
 
-Before making any changes, consult [`./architecture.md`](./architecture.md) for the frontend architecture. All modifications must be consistent with the existing design.
+Before making any changes, consult [`./architecture.md`](./architecture.md) for the frontend architecture. All modifications must be consistent with the existing design. Project management UI behavior MUST follow [`./project-management.md`](./project-management.md).
 
 ### Cost Level static layout
 
-When editing the project Cost Level panel in `src/views/ProjectDetailView.vue`, static-mode control layout MUST follow `architecture.md` section **Static Cost Level control layout**. After the change, verify:
+When editing the project Cost Level panel in `src/views/ProjectDetailView.vue`, static-mode control layout MUST follow `project-management.md` section **Static Cost Level control layout**. After the change, verify:
 
 1. Queue range bar width matches the slider track left and right edges.
 2. Left numeric box stays left-aligned and tall (`h-20`) with primary flex-centered digits; right slider is about 80% of the remaining row width and horizontally centered in that space, with a tighter range-bar height.
@@ -12,7 +12,7 @@ When editing the project Cost Level panel in `src/views/ProjectDetailView.vue`, 
 
 ### Cost Level auto layout
 
-When editing auto-mode controls in `src/views/ProjectDetailView.vue`, layout MUST follow `architecture.md` section **Auto Cost Level control layout**. After the change, verify:
+When editing auto-mode controls in `src/views/ProjectDetailView.vue`, layout MUST follow `project-management.md` section **Auto Cost Level control layout**. After the change, verify:
 
 1. Queue position and Max Cost Level are two bordered groups with clear titles and larger spacing between groups.
 2. Each group has a tall left input and an 80%-width centered dual-bar block.
@@ -23,6 +23,7 @@ When editing auto-mode controls in `src/views/ProjectDetailView.vue`, layout MUS
 | Document | Description |
 |----------|-------------|
 | [architecture.md](./architecture.md) | Technical architecture: Vue app layers, directory layout, Pinia stores, wallet login via Reown AppKit and Crynux AS JWT, API client, dashboard routing and layout |
+| [project-management.md](./project-management.md) | Project list and detail views: Cost Level, Playground, usage, recent requests, and Cost Level control layouts |
 | [layout.md](./layout.md) | UI layout and typography: title line wrapping and information layout for lists and cards |
 
 ## Doc Update Requirements

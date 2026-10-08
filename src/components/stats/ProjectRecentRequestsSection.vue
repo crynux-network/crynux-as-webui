@@ -44,8 +44,8 @@ function formatRequestDuration(durationMs) {
   return `${Math.round(ms / 1000)} s`
 }
 
-function formatNullableCredits(value) {
-  if (value == null) return '—'
+function formatNullableCredits(value, status) {
+  if (status === 'failed' || value == null) return '—'
   return formatCreditsValue(value)
 }
 
@@ -178,7 +178,7 @@ onUnmounted(stopRefresh)
               <template v-else>—</template>
             </td>
             <td class="px-4 py-2.5 tabular-nums">
-              {{ formatNullableCredits(request.credits) }}
+              {{ formatNullableCredits(request.credits, request.status) }}
             </td>
             <td class="px-4 py-2.5 whitespace-nowrap">
               {{ formatRecordTime(request.created_at) }}

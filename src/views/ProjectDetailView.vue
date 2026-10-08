@@ -27,6 +27,7 @@ import ApiKeyRevealDialog from '@/components/projects/ApiKeyRevealDialog.vue'
 import DeleteProjectDialog from '@/components/projects/DeleteProjectDialog.vue'
 import RenameProjectDialog from '@/components/projects/RenameProjectDialog.vue'
 import ResetApiKeyDialog from '@/components/projects/ResetApiKeyDialog.vue'
+import ProjectPlaygroundSection from '@/components/projects/ProjectPlaygroundSection.vue'
 import ProjectUsageSection from '@/components/stats/ProjectUsageSection.vue'
 import ProjectRecentRequestsSection from '@/components/stats/ProjectRecentRequestsSection.vue'
 import ApiError from '@/api/api-error'
@@ -35,9 +36,15 @@ import { projectsAPI } from '@/api/v1/projects'
 import {
   PROJECT_API_DOCS,
   projectChatCompletionsUrl,
+  projectImageModelsUrl,
   projectLlmBaseUrl,
   projectModelsUrl,
-  projectRawTaskUrl,
+  projectRawTaskBatchCreateUrl,
+  projectRawTaskBatchStatusUrl,
+  projectRawTaskCreateUrl,
+  projectRawTaskImageResultUrl,
+  projectRawTaskLlmResultUrl,
+  projectRawTaskStatusUrl,
   projectResponsesUrl,
 } from '@/lib/project-url'
 import {
@@ -98,8 +105,8 @@ const pricingPromptTokens = ref(1_000_000)
 const pricingCompletionTokens = ref(1_000_000)
 const timePromptTokens = ref(512)
 const timeCompletionTokens = ref(2048)
-const copiedField = ref('')
-let copiedFieldTimer = null
+const copiedFields = ref(new Set())
+const copiedFieldTimers = new Map()
 let prioritySaveTimer = null
 let syncingPriority = false
 let syncingAutoControls = false
@@ -136,16 +143,32 @@ const apiGuideItems = computed(() => {
   return [
     {
       id: 'chat_completions',
-      label: 'Chat Completions',
-      url: token ? projectChatCompletionsUrl(token) : '',
+      label: 'OpenAI Chat Completions',
+      baseUrl: token ? projectLlmBaseUrl(token) : '',
+      endpoints: [
+        {
+          id: 'chat_completions',
+          method: 'POST',
+          url: token ? projectChatCompletionsUrl(token) : '',
+          purpose: 'Create a chat completion.',
+        },
+      ],
       docsUrl: PROJECT_API_DOCS.chat_completions,
       description:
         'OpenAI Chat Completions API. Use the OpenAI SDK with this project Base URL, or POST directly to this endpoint with the project API key.',
     },
     {
       id: 'responses',
-      label: 'Responses',
-      url: token ? projectResponsesUrl(token) : '',
+      label: 'OpenAI Responses',
+      baseUrl: token ? projectLlmBaseUrl(token) : '',
+      endpoints: [
+        {
+          id: 'responses',
+          method: 'POST',
+          url: token ? projectResponsesUrl(token) : '',
+          purpose: 'Create an OpenAI-compatible response.',
+        },
+      ],
       docsUrl: PROJECT_API_DOCS.responses,
       description:
         'OpenAI Responses API. Use it when you need background execution or response polling instead of a single chat completion call.',
@@ -153,18 +176,69 @@ const apiGuideItems = computed(() => {
     {
       id: 'raw_task',
       label: 'Raw Task',
-      url: token ? projectRawTaskUrl(token) : '',
+      endpoints: [
+        {
+          id: 'raw_task_create',
+          method: 'POST',
+          url: token ? projectRawTaskCreateUrl(token) : '',
+          purpose: 'Create one LLM or Image task.',
+        },
+        {
+          id: 'raw_task_status',
+          method: 'GET',
+          url: token ? projectRawTaskStatusUrl(token) : '',
+          purpose: 'Get one task status.',
+        },
+        {
+          id: 'raw_task_llm_result',
+          method: 'GET',
+          url: token ? projectRawTaskLlmResultUrl(token) : '',
+          purpose: 'Download the JSON result of a successful LLM task.',
+        },
+        {
+          id: 'raw_task_image_result',
+          method: 'GET',
+          url: token ? projectRawTaskImageResultUrl(token) : '',
+          purpose: 'Download one PNG result of a successful Image task.',
+        },
+        {
+          id: 'raw_task_batch_create',
+          method: 'POST',
+          url: token ? projectRawTaskBatchCreateUrl(token) : '',
+          purpose: 'Create up to 100 tasks in request order.',
+        },
+        {
+          id: 'raw_task_batch_status',
+          method: 'POST',
+          url: token ? projectRawTaskBatchStatusUrl(token) : '',
+          purpose: 'Get task statuses in request order.',
+        },
+      ],
       docsUrl: PROJECT_API_DOCS.raw_task,
       description:
-        'Crynux raw task API. Submit task parameters directly for supported task types such as text-to-image, text-to-text, and fine-tuning, without the OpenAI request format.',
+        'Submit canonical task arguments directly for LLM and Image execution without the OpenAI request format.',
     },
     {
       id: 'models',
       label: 'Models',
-      url: token ? projectModelsUrl(token) : '',
+      endpoints: [
+        {
+          id: 'llm_models',
+          method: 'GET',
+          url: token ? projectModelsUrl(token) : '',
+          purpose: 'List currently loaded LLM models.',
+          note: 'OpenAI-compatible endpoint.',
+        },
+        {
+          id: 'image_models',
+          method: 'GET',
+          url: token ? projectImageModelsUrl(token) : '',
+          purpose: 'List currently loaded Image models.',
+        },
+      ],
       docsUrl: PROJECT_API_DOCS.models,
       description:
-        'OpenAI-compatible Models API. Lists LLM models currently active on the Crynux Network. This list is not a hard limit: any HuggingFace model that works with transformers can be used if enough VRAM is available, and models not listed yet may need a first warm-up request.',
+        'The LLM and Image catalogs are separate. Each endpoint returns only its corresponding model type.',
     },
   ]
 })
@@ -536,15 +610,21 @@ async function onCopyField(field, value) {
   if (!value) return
   try {
     await copyText(value)
-    copiedField.value = field
-    if (copiedFieldTimer) clearTimeout(copiedFieldTimer)
-    copiedFieldTimer = setTimeout(() => {
-      copiedField.value = ''
-      copiedFieldTimer = null
+    copiedFields.value.add(field)
+    const currentTimer = copiedFieldTimers.get(field)
+    if (currentTimer) clearTimeout(currentTimer)
+    const timer = setTimeout(() => {
+      copiedFields.value.delete(field)
+      copiedFieldTimers.delete(field)
     }, 2000)
+    copiedFieldTimers.set(field, timer)
   } catch (e) {
     console.error('Failed to copy URL', e)
   }
+}
+
+function isCopied(field) {
+  return copiedFields.value.has(field)
 }
 
 function onSelectUrl(event) {
@@ -710,10 +790,11 @@ onMounted(async () => {
 
 onUnmounted(() => {
   clearPrioritySaveTimer()
-  if (copiedFieldTimer) {
-    clearTimeout(copiedFieldTimer)
-    copiedFieldTimer = null
+  for (const timer of copiedFieldTimers.values()) {
+    clearTimeout(timer)
   }
+  copiedFieldTimers.clear()
+  copiedFields.value.clear()
 })
 </script>
 
@@ -790,11 +871,11 @@ onUnmounted(() => {
                 size="icon"
                 class="shrink-0 bg-background"
                 :aria-label="
-                  copiedField === 'base' ? 'Copied' : 'Copy base URL'
+                  isCopied('base') ? 'Copied' : 'Copy base URL'
                 "
                 @click="onCopyField('base', llmBaseUrl)"
               >
-                <Check v-if="copiedField === 'base'" class="size-4" />
+                <Check v-if="isCopied('base')" class="size-4" />
                 <Copy v-else class="size-4" />
               </Button>
             </div>
@@ -858,30 +939,71 @@ onUnmounted(() => {
                 class="mt-0"
               >
                 <div class="rounded-lg border border-border bg-background p-4">
-                  <div class="grid gap-2">
-                    <Label class="text-muted-foreground">Endpoint URL</Label>
-                    <div class="flex min-w-0 items-center gap-2">
-                      <Input
-                        :model-value="item.url"
-                        readonly
-                        class="min-w-0 flex-1 truncate font-mono text-xs"
-                        @focus="onSelectUrl"
-                        @click="onSelectUrl"
-                      />
+                  <div v-if="item.baseUrl" class="mb-4 grid gap-2">
+                    <Label class="text-muted-foreground">Base URL</Label>
+                    <div class="flex min-w-0 items-start gap-2">
+                      <code class="min-w-0 flex-1 break-all rounded bg-muted/50 px-3 py-2 text-xs">
+                        {{ item.baseUrl }}
+                      </code>
                       <Button
                         variant="outline"
                         size="icon"
                         class="shrink-0"
                         :aria-label="
-                          copiedField === item.id
+                          isCopied(`${item.id}_base`)
                             ? 'Copied'
-                            : `Copy ${item.label} URL`
+                            : `Copy ${item.label} base URL`
                         "
-                        @click="onCopyField(item.id, item.url)"
+                        @click="onCopyField(`${item.id}_base`, item.baseUrl)"
                       >
-                        <Check v-if="copiedField === item.id" class="size-4" />
+                        <Check v-if="isCopied(`${item.id}_base`)" class="size-4" />
                         <Copy v-else class="size-4" />
                       </Button>
+                    </div>
+                    <p class="text-xs text-muted-foreground">
+                      Use this URL as the OpenAI client base URL.
+                    </p>
+                  </div>
+
+                  <div class="grid gap-3">
+                    <div
+                      v-for="endpoint in item.endpoints"
+                      :key="endpoint.id"
+                      class="rounded-md border border-border p-3"
+                    >
+                      <div class="mb-2 flex items-center gap-2">
+                        <span class="rounded bg-muted px-2 py-0.5 font-mono text-xs font-semibold">
+                          {{ endpoint.method }}
+                        </span>
+                        <span class="text-sm text-muted-foreground">
+                          {{ endpoint.purpose }}
+                        </span>
+                      </div>
+                      <div class="flex min-w-0 items-start gap-2">
+                        <code class="min-w-0 flex-1 break-all rounded bg-muted/50 px-3 py-2 text-xs">
+                          {{ endpoint.url }}
+                        </code>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          class="shrink-0"
+                          :aria-label="
+                            isCopied(endpoint.id)
+                              ? 'Copied'
+                              : `Copy ${endpoint.purpose} URL`
+                          "
+                          @click="onCopyField(endpoint.id, endpoint.url)"
+                        >
+                          <Check v-if="isCopied(endpoint.id)" class="size-4" />
+                          <Copy v-else class="size-4" />
+                        </Button>
+                      </div>
+                      <p
+                        v-if="endpoint.note"
+                        class="mt-2 text-xs text-muted-foreground"
+                      >
+                        {{ endpoint.note }}
+                      </p>
                     </div>
                   </div>
 
@@ -1401,6 +1523,11 @@ onUnmounted(() => {
           </div>
         </div>
       </section>
+
+      <ProjectPlaygroundSection
+        v-if="endpointToken"
+        :endpoint-token="endpointToken"
+      />
 
       <ProjectUsageSection
         v-if="project?.id"

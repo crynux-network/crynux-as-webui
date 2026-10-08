@@ -6,6 +6,7 @@ import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import App from './App.vue'
 import router from './router'
 import v1 from '@/api/v1/v1'
+import { projectPrivateAPI } from '@/api/project-private'
 import { useAuthStore } from '@/stores/auth'
 import { useWalletStore } from '@/stores/wallet'
 import { initAppKit, wagmiConfig } from '@/lib/appkit'
@@ -28,7 +29,7 @@ const queryClient = new QueryClient()
 app.use(WagmiPlugin, { config: wagmiConfig })
 app.use(VueQueryPlugin, { queryClient })
 
-v1.setAuthTokenGetter(() => {
+const getAuthToken = () => {
   try {
     const auth = useAuthStore()
     if (!auth || !auth.isAuthenticated) return null
@@ -36,7 +37,10 @@ v1.setAuthTokenGetter(() => {
   } catch (_) {
     return null
   }
-})
+}
+
+v1.setAuthTokenGetter(getAuthToken)
+projectPrivateAPI.setAuthTokenGetter(getAuthToken)
 
 const handleUnauthorized = () => {
   try {
@@ -59,6 +63,7 @@ const handleUnauthorized = () => {
 }
 
 v1.apiUnauthorizedErrorHandler = handleUnauthorized
+projectPrivateAPI.apiUnauthorizedErrorHandler = handleUnauthorized
 
 const defaultErrorHandler = () => {
   console.error('Unexpected server error. Please try again later.')
