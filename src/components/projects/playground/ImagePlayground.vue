@@ -29,7 +29,7 @@ const props = defineProps({
 })
 
 const models = ref([])
-const selectedModel = ref('')
+const selectedModelKey = ref('')
 const prompt = ref('')
 const negativePrompt = ref('')
 const steps = ref([STEPS_DEFAULT])
@@ -43,11 +43,28 @@ const showElapsed = ref(false)
 let elapsedTimerId = null
 let requestStartedAt = 0
 
+function modelVariant(model) {
+  return typeof model?.variant === 'string' ? model.variant : ''
+}
+
+function modelSelectionKey(model) {
+  return `${model.id}\0${modelVariant(model)}`
+}
+
+function modelLabel(model) {
+  const variant = modelVariant(model)
+  return variant ? `${model.id} (${variant})` : model.id
+}
+
+const selectedModelEntry = computed(() =>
+  models.value.find((model) => modelSelectionKey(model) === selectedModelKey.value) || null,
+)
+
 const canGenerate = computed(
   () =>
     !generating.value &&
     !loadingModels.value &&
-    Boolean(selectedModel.value) &&
+    Boolean(selectedModelEntry.value) &&
     Boolean(prompt.value.trim()),
 )
 
@@ -105,27 +122,31 @@ async function loadModels() {
   try {
     const list = await projectPrivateAPI.listImageModels(props.endpointToken)
     models.value = list
-    if (!selectedModel.value && list.length > 0) {
-      selectedModel.value = list[0].id
+    if (!selectedModelKey.value && list.length > 0) {
+      selectedModelKey.value = modelSelectionKey(list[0])
     }
-    if (selectedModel.value && !list.some((m) => m.id === selectedModel.value)) {
-      selectedModel.value = list[0]?.id || ''
+    if (
+      selectedModelKey.value &&
+      !list.some((m) => modelSelectionKey(m) === selectedModelKey.value)
+    ) {
+      selectedModelKey.value = list[0] ? modelSelectionKey(list[0]) : ''
     }
   } catch (error) {
     console.error('Failed to load image models for playground', error)
     toast.error('Failed to load models. Please try again later.')
     models.value = []
-    selectedModel.value = ''
+    selectedModelKey.value = ''
   } finally {
     loadingModels.value = false
   }
 }
 
 function buildTaskArgs() {
+  const selected = selectedModelEntry.value
   return {
     base_model: {
-      name: selectedModel.value,
-      variant: 'fp16',
+      name: selected.id,
+      variant: modelVariant(selected),
     },
     prompt: prompt.value.trim(),
     negative_prompt: negativePrompt.value.trim(),
@@ -226,7 +247,7 @@ watch(
     prompt.value = ''
     negativePrompt.value = ''
     steps.value = [STEPS_DEFAULT]
-    selectedModel.value = ''
+    selectedModelKey.value = ''
     revokeImageUrl()
     loadModels()
   },
@@ -247,7 +268,7 @@ onUnmounted(() => {
     <div class="space-y-2">
       <Label>Model</Label>
       <Select
-        v-model="selectedModel"
+        v-model="selectedModelKey"
         :disabled="loadingModels || generating || models.length === 0"
       >
         <SelectTrigger class="w-full max-w-md">
@@ -256,10 +277,10 @@ onUnmounted(() => {
         <SelectContent>
           <SelectItem
             v-for="model in models"
-            :key="model.id"
-            :value="model.id"
+            :key="modelSelectionKey(model)"
+            :value="modelSelectionKey(model)"
           >
-            {{ model.id }}
+            {{ modelLabel(model) }}
           </SelectItem>
         </SelectContent>
       </Select>
