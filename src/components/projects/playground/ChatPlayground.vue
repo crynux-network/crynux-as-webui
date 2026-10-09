@@ -6,18 +6,22 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { projectPrivateAPI } from '@/api/project-private'
+import {
+  loadPlaygroundState,
+  savePlaygroundState,
+} from '@/lib/playground-storage'
+import ModelPicker from '@/components/projects/playground/ModelPicker.vue'
 
 const MAX_TURNS = 10
+const FIRST_DOWNLOAD_HINT =
+  'This model is not yet available on network nodes. The first request may take much longer while nodes download it.'
 
 const props = defineProps({
+  projectId: {
+    type: [Number, String],
+    required: true,
+  },
   endpointToken: {
     type: String,
     required: true,
@@ -25,22 +29,30 @@ const props = defineProps({
 })
 
 const models = ref([])
-const selectedModel = ref('')
+const selectedModel = ref(null)
 const messages = ref([])
 const draft = ref('')
 const thinking = ref(true)
 const loadingModels = ref(false)
 const sending = ref(false)
 const pendingElapsedSeconds = ref(0)
+const hydrated = ref(false)
 
 let elapsedTimerId = null
 let requestStartedAt = 0
+
+const showFirstDownloadHint = computed(
+  () =>
+    Boolean(selectedModel.value) &&
+    (selectedModel.value.isCustom ||
+      Number(selectedModel.value.on_disk_node_count) === 0),
+)
 
 const canSend = computed(
   () =>
     !sending.value &&
     !loadingModels.value &&
-    Boolean(selectedModel.value) &&
+    Boolean(selectedModel.value?.id) &&
     Boolean(draft.value.trim()),
 )
 
@@ -80,22 +92,61 @@ function finalizeElapsedSeconds() {
   return Math.max(0, Math.floor((Date.now() - requestStartedAt) / 1000))
 }
 
+function toSelection(model) {
+  return {
+    id: String(model.id || ''),
+    variant: '',
+    min_vram: Number(model.min_vram) || 0,
+    on_disk_node_count: Number(model.on_disk_node_count) || 0,
+    isCustom: false,
+  }
+}
+
+function hydrateFromStorage() {
+  const state = loadPlaygroundState(props.projectId)
+  selectedModel.value = state.chat.selectedModel
+  messages.value = trimToMaxTurns(state.chat.messages)
+  hydrated.value = true
+}
+
+function persistChatState() {
+  if (!hydrated.value) return
+  savePlaygroundState(props.projectId, {
+    chat: {
+      selectedModel: selectedModel.value,
+      messages: messages.value,
+    },
+  })
+}
+
 async function loadModels() {
   loadingModels.value = true
   try {
     const list = await projectPrivateAPI.listModels(props.endpointToken)
     models.value = list
-    if (!selectedModel.value && list.length > 0) {
-      selectedModel.value = list[0].id
+    const current = selectedModel.value
+    if (current?.isCustom) {
+      return
     }
-    if (selectedModel.value && !list.some((m) => m.id === selectedModel.value)) {
-      selectedModel.value = list[0]?.id || ''
+    if (!current && list.length > 0) {
+      selectedModel.value = toSelection(list[0])
+      return
+    }
+    if (current) {
+      const matched = list.find((m) => m.id === current.id)
+      if (matched) {
+        selectedModel.value = toSelection(matched)
+        return
+      }
+      selectedModel.value = list[0] ? toSelection(list[0]) : null
     }
   } catch (error) {
     console.error('Failed to load LLM models for playground', error)
     toast.error('Failed to load models. Please try again later.')
     models.value = []
-    selectedModel.value = ''
+    if (!selectedModel.value?.isCustom) {
+      selectedModel.value = null
+    }
   } finally {
     loadingModels.value = false
   }
@@ -124,8 +175,8 @@ async function sendMessage() {
   startElapsedTimer()
 
   try {
-    const response = await projectPrivateAPI.chatCompletions(props.endpointToken, {
-      model: selectedModel.value,
+    const payload = {
+      model: selectedModel.value.id,
       messages: nextMessages.map(({ role, content: messageContent }) => ({
         role,
         content: messageContent,
@@ -133,7 +184,14 @@ async function sendMessage() {
       chat_template_kwargs: {
         enable_thinking: thinking.value,
       },
-    })
+    }
+    if (selectedModel.value.isCustom) {
+      payload.vram_limit = selectedModel.value.min_vram
+    }
+    const response = await projectPrivateAPI.chatCompletions(
+      props.endpointToken,
+      payload,
+    )
     const assistantContent =
       response?.choices?.[0]?.message?.content ??
       response?.choices?.[0]?.text ??
@@ -160,20 +218,29 @@ async function sendMessage() {
 }
 
 watch(
-  () => props.endpointToken,
+  [selectedModel, messages],
+  () => {
+    persistChatState()
+  },
+  { deep: true },
+)
+
+watch(
+  () => [props.projectId, props.endpointToken],
   () => {
     stopElapsedTimer()
     pendingElapsedSeconds.value = 0
     sending.value = false
-    messages.value = []
     draft.value = ''
     thinking.value = true
-    selectedModel.value = ''
+    hydrated.value = false
+    hydrateFromStorage()
     loadModels()
   },
 )
 
 onMounted(() => {
+  hydrateFromStorage()
   loadModels()
 })
 
@@ -184,23 +251,20 @@ onUnmounted(() => {
 
 <template>
   <div class="space-y-4">
-    <div class="space-y-2">
-      <Label>Model</Label>
-      <Select v-model="selectedModel" :disabled="loadingModels || sending || models.length === 0">
-        <SelectTrigger class="w-full max-w-md">
-          <SelectValue :placeholder="loadingModels ? 'Loading models…' : 'Select a model'" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem
-            v-for="model in models"
-            :key="model.id"
-            :value="model.id"
-          >
-            {{ model.id }}
-          </SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
+    <ModelPicker
+      v-model="selectedModel"
+      mode="chat"
+      :models="models"
+      :loading="loadingModels"
+      :disabled="sending"
+    />
+
+    <p
+      v-if="showFirstDownloadHint"
+      class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300"
+    >
+      {{ FIRST_DOWNLOAD_HINT }}
+    </p>
 
     <div
       class="flex h-80 flex-col gap-3 overflow-y-auto rounded-lg border border-border bg-muted/20 p-4"

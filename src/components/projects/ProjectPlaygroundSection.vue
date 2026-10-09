@@ -6,6 +6,10 @@ import ChatPlayground from '@/components/projects/playground/ChatPlayground.vue'
 import ImagePlayground from '@/components/projects/playground/ImagePlayground.vue'
 
 defineProps({
+  projectId: {
+    type: [Number, String],
+    required: true,
+  },
   endpointToken: {
     type: String,
     required: true,
@@ -55,10 +59,16 @@ const playgroundTab = ref('chat')
           </TabsTrigger>
         </TabsList>
         <TabsContent value="chat">
-          <ChatPlayground :endpoint-token="endpointToken" />
+          <ChatPlayground
+            :project-id="projectId"
+            :endpoint-token="endpointToken"
+          />
         </TabsContent>
         <TabsContent value="image">
-          <ImagePlayground :endpoint-token="endpointToken" />
+          <ImagePlayground
+            :project-id="projectId"
+            :endpoint-token="endpointToken"
+          />
         </TabsContent>
       </Tabs>
     </div>

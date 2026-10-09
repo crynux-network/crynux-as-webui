@@ -1526,6 +1526,7 @@ onUnmounted(() => {
 
       <ProjectPlaygroundSection
         v-if="endpointToken"
+        :project-id="project.id"
         :endpoint-token="endpointToken"
       />
 

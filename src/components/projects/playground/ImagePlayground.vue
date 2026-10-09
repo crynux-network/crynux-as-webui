@@ -5,14 +5,13 @@ import ApiError from '@/api/api-error'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { projectPrivateAPI } from '@/api/project-private'
+import {
+  blobToDataUrl,
+  loadPlaygroundState,
+  savePlaygroundState,
+} from '@/lib/playground-storage'
+import ModelPicker from '@/components/projects/playground/ModelPicker.vue'
 
 const POLL_INTERVAL_MS = 2500
 const MAX_POLL_MS = 11 * 60 * 1000
@@ -20,8 +19,14 @@ const FALLBACK_ERROR = 'Image generation failed'
 const STEPS_MIN = 1
 const STEPS_MAX = 50
 const STEPS_DEFAULT = 4
+const FIRST_DOWNLOAD_HINT =
+  'This model is not yet available on network nodes. The first request may take much longer while nodes download it.'
 
 const props = defineProps({
+  projectId: {
+    type: [Number, String],
+    required: true,
+  },
   endpointToken: {
     type: String,
     required: true,
@@ -29,7 +34,7 @@ const props = defineProps({
 })
 
 const models = ref([])
-const selectedModelKey = ref('')
+const selectedModel = ref(null)
 const prompt = ref('')
 const negativePrompt = ref('')
 const steps = ref([STEPS_DEFAULT])
@@ -39,6 +44,7 @@ const imageUrl = ref('')
 const errorMessage = ref('')
 const elapsedSeconds = ref(0)
 const showElapsed = ref(false)
+const hydrated = ref(false)
 
 let elapsedTimerId = null
 let requestStartedAt = 0
@@ -51,20 +57,28 @@ function modelSelectionKey(model) {
   return `${model.id}\0${modelVariant(model)}`
 }
 
-function modelLabel(model) {
-  const variant = modelVariant(model)
-  return variant ? `${model.id} (${variant})` : model.id
+function toSelection(model) {
+  return {
+    id: String(model.id || ''),
+    variant: modelVariant(model),
+    min_vram: Number(model.min_vram) || 0,
+    on_disk_node_count: Number(model.on_disk_node_count) || 0,
+    isCustom: false,
+  }
 }
 
-const selectedModelEntry = computed(() =>
-  models.value.find((model) => modelSelectionKey(model) === selectedModelKey.value) || null,
+const showFirstDownloadHint = computed(
+  () =>
+    Boolean(selectedModel.value) &&
+    (selectedModel.value.isCustom ||
+      Number(selectedModel.value.on_disk_node_count) === 0),
 )
 
 const canGenerate = computed(
   () =>
     !generating.value &&
     !loadingModels.value &&
-    Boolean(selectedModelEntry.value) &&
+    Boolean(selectedModel.value?.id) &&
     Boolean(prompt.value.trim()),
 )
 
@@ -100,11 +114,37 @@ function finalizeElapsedSeconds() {
   )
 }
 
-function revokeImageUrl() {
-  if (imageUrl.value) {
-    URL.revokeObjectURL(imageUrl.value)
-    imageUrl.value = ''
-  }
+function clearImageUrl() {
+  imageUrl.value = ''
+}
+
+function hydrateFromStorage() {
+  const state = loadPlaygroundState(props.projectId)
+  selectedModel.value = state.image.selectedModel
+  prompt.value = state.image.prompt
+  negativePrompt.value = state.image.negativePrompt
+  steps.value = [state.image.steps]
+  imageUrl.value = state.image.imageDataUrl || ''
+  elapsedSeconds.value = state.image.elapsedSeconds
+  showElapsed.value = state.image.showElapsed
+  hydrated.value = true
+}
+
+function persistImageState() {
+  if (!hydrated.value) return
+  savePlaygroundState(props.projectId, {
+    image: {
+      selectedModel: selectedModel.value,
+      prompt: prompt.value,
+      negativePrompt: negativePrompt.value,
+      steps: steps.value?.[0] ?? STEPS_DEFAULT,
+      imageDataUrl: imageUrl.value.startsWith('data:image/')
+        ? imageUrl.value
+        : null,
+      elapsedSeconds: elapsedSeconds.value,
+      showElapsed: showElapsed.value,
+    },
+  })
 }
 
 function resolveErrorMessage(error) {
@@ -122,27 +162,38 @@ async function loadModels() {
   try {
     const list = await projectPrivateAPI.listImageModels(props.endpointToken)
     models.value = list
-    if (!selectedModelKey.value && list.length > 0) {
-      selectedModelKey.value = modelSelectionKey(list[0])
+    const current = selectedModel.value
+    if (current?.isCustom) {
+      return
     }
-    if (
-      selectedModelKey.value &&
-      !list.some((m) => modelSelectionKey(m) === selectedModelKey.value)
-    ) {
-      selectedModelKey.value = list[0] ? modelSelectionKey(list[0]) : ''
+    if (!current && list.length > 0) {
+      selectedModel.value = toSelection(list[0])
+      return
+    }
+    if (current) {
+      const matched = list.find(
+        (m) => modelSelectionKey(m) === modelSelectionKey(current),
+      )
+      if (matched) {
+        selectedModel.value = toSelection(matched)
+        return
+      }
+      selectedModel.value = list[0] ? toSelection(list[0]) : null
     }
   } catch (error) {
     console.error('Failed to load image models for playground', error)
     toast.error('Failed to load models. Please try again later.')
     models.value = []
-    selectedModelKey.value = ''
+    if (!selectedModel.value?.isCustom) {
+      selectedModel.value = null
+    }
   } finally {
     loadingModels.value = false
   }
 }
 
 function buildTaskArgs() {
-  const selected = selectedModelEntry.value
+  const selected = selectedModel.value
   return {
     base_model: {
       name: selected.id,
@@ -199,16 +250,20 @@ async function generateImage() {
 
   generating.value = true
   errorMessage.value = ''
-  revokeImageUrl()
+  clearImageUrl()
   startElapsedTimer()
 
   try {
+    const payload = {
+      task_type: 0,
+      task_args: JSON.stringify(buildTaskArgs()),
+    }
+    if (selectedModel.value.isCustom) {
+      payload.min_vram = selectedModel.value.min_vram
+    }
     const created = await projectPrivateAPI.createInferenceTask(
       props.endpointToken,
-      {
-        task_type: 0,
-        task_args: JSON.stringify(buildTaskArgs()),
-      },
+      payload,
     )
     const taskId = created?.id
     if (!taskId) {
@@ -220,7 +275,7 @@ async function generateImage() {
       taskId,
       0,
     )
-    imageUrl.value = URL.createObjectURL(blob)
+    imageUrl.value = await blobToDataUrl(blob)
   } catch (error) {
     console.error('Playground image generation failed', error)
     const message = resolveErrorMessage(error)
@@ -237,54 +292,51 @@ async function generateImage() {
 }
 
 watch(
-  () => props.endpointToken,
+  [selectedModel, prompt, negativePrompt, steps, imageUrl, elapsedSeconds, showElapsed],
+  () => {
+    persistImageState()
+  },
+  { deep: true },
+)
+
+watch(
+  () => [props.projectId, props.endpointToken],
   () => {
     stopElapsedTimer()
-    elapsedSeconds.value = 0
-    showElapsed.value = false
     generating.value = false
     errorMessage.value = ''
-    prompt.value = ''
-    negativePrompt.value = ''
-    steps.value = [STEPS_DEFAULT]
-    selectedModelKey.value = ''
-    revokeImageUrl()
+    hydrated.value = false
+    hydrateFromStorage()
     loadModels()
   },
 )
 
 onMounted(() => {
+  hydrateFromStorage()
   loadModels()
 })
 
 onUnmounted(() => {
   stopElapsedTimer()
-  revokeImageUrl()
 })
 </script>
 
 <template>
   <div class="space-y-4">
-    <div class="space-y-2">
-      <Label>Model</Label>
-      <Select
-        v-model="selectedModelKey"
-        :disabled="loadingModels || generating || models.length === 0"
-      >
-        <SelectTrigger class="w-full max-w-md">
-          <SelectValue :placeholder="loadingModels ? 'Loading models…' : 'Select a model'" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem
-            v-for="model in models"
-            :key="modelSelectionKey(model)"
-            :value="modelSelectionKey(model)"
-          >
-            {{ modelLabel(model) }}
-          </SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
+    <ModelPicker
+      v-model="selectedModel"
+      mode="image"
+      :models="models"
+      :loading="loadingModels"
+      :disabled="generating"
+    />
+
+    <p
+      v-if="showFirstDownloadHint"
+      class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300"
+    >
+      {{ FIRST_DOWNLOAD_HINT }}
+    </p>
 
     <div class="space-y-2">
       <Label for="playground-image-prompt">Prompt</Label>
