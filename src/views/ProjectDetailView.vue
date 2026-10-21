@@ -37,6 +37,7 @@ import {
   PROJECT_API_DOCS,
   projectChatCompletionsUrl,
   projectImageModelsUrl,
+  projectImagesGenerationsUrl,
   projectLlmBaseUrl,
   projectModelsUrl,
   projectRawTaskBatchCreateUrl,
@@ -144,7 +145,6 @@ const apiGuideItems = computed(() => {
     {
       id: 'chat_completions',
       label: 'OpenAI Chat Completions',
-      baseUrl: token ? projectLlmBaseUrl(token) : '',
       endpoints: [
         {
           id: 'chat_completions',
@@ -155,12 +155,11 @@ const apiGuideItems = computed(() => {
       ],
       docsUrl: PROJECT_API_DOCS.chat_completions,
       description:
-        'OpenAI Chat Completions API. Use the OpenAI SDK with this project Base URL, or POST directly to this endpoint with the project API key.',
+        'OpenAI Chat Completions API. POST to this endpoint with the project API key, or derive the OpenAI client base URL from the project panel above.',
     },
     {
       id: 'responses',
       label: 'OpenAI Responses',
-      baseUrl: token ? projectLlmBaseUrl(token) : '',
       endpoints: [
         {
           id: 'responses',
@@ -172,6 +171,20 @@ const apiGuideItems = computed(() => {
       docsUrl: PROJECT_API_DOCS.responses,
       description:
         'OpenAI Responses API. Use it when you need background execution or response polling instead of a single chat completion call.',
+    },
+    {
+      id: 'images',
+      label: 'OpenAI Images',
+      endpoints: [
+        {
+          id: 'images_generations',
+          method: 'POST',
+          url: token ? projectImagesGenerationsUrl(token) : '',
+          purpose: 'Generate images from a text prompt.',
+        },
+      ],
+      description:
+        'OpenAI Images generations API. POST to this endpoint with the project API key. Only b64_json PNG responses are supported.',
     },
     {
       id: 'raw_task',
