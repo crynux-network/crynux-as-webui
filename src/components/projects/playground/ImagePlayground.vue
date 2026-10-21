@@ -11,7 +11,13 @@ import {
   loadPlaygroundState,
   savePlaygroundState,
 } from '@/lib/playground-storage'
+import { appendStatusLogEntry } from '@/lib/playground-status-log'
+import {
+  catalogToModelSelection,
+  modelSelectionKey,
+} from '@/lib/model-tags'
 import ModelPicker from '@/components/projects/playground/ModelPicker.vue'
+import PlaygroundStatusLog from '@/components/projects/playground/PlaygroundStatusLog.vue'
 
 const POLL_INTERVAL_MS = 2500
 const MAX_POLL_MS = 11 * 60 * 1000
@@ -44,27 +50,37 @@ const imageUrl = ref('')
 const errorMessage = ref('')
 const elapsedSeconds = ref(0)
 const showElapsed = ref(false)
+const statusLog = ref([])
+const inFlightTaskId = ref(null)
+const inFlightStartedAt = ref(null)
 const hydrated = ref(false)
 
 let elapsedTimerId = null
 let requestStartedAt = 0
-
-function modelVariant(model) {
-  return typeof model?.variant === 'string' ? model.variant : ''
-}
-
-function modelSelectionKey(model) {
-  return `${model.id}\0${modelVariant(model)}`
-}
+let activeRunId = 0
 
 function toSelection(model) {
-  return {
-    id: String(model.id || ''),
-    variant: modelVariant(model),
-    min_vram: Number(model.min_vram) || 0,
-    on_disk_node_count: Number(model.on_disk_node_count) || 0,
-    isCustom: false,
-  }
+  return catalogToModelSelection(model)
+}
+
+function beginRun() {
+  activeRunId += 1
+  return activeRunId
+}
+
+function isRunActive(runId) {
+  return runId === activeRunId
+}
+
+function clearInFlight() {
+  inFlightTaskId.value = null
+  inFlightStartedAt.value = null
+}
+
+function setInFlight(taskId, startedAt) {
+  inFlightTaskId.value = taskId
+  inFlightStartedAt.value =
+    typeof startedAt === 'number' && startedAt > 0 ? startedAt : Date.now()
 }
 
 const showFirstDownloadHint = computed(
@@ -93,10 +109,14 @@ function stopElapsedTimer() {
   }
 }
 
-function startElapsedTimer() {
+function startElapsedTimerFrom(startedAt) {
   stopElapsedTimer()
-  requestStartedAt = Date.now()
-  elapsedSeconds.value = 0
+  requestStartedAt =
+    typeof startedAt === 'number' && startedAt > 0 ? startedAt : Date.now()
+  elapsedSeconds.value = Math.max(
+    0,
+    Math.floor((Date.now() - requestStartedAt) / 1000),
+  )
   showElapsed.value = true
   elapsedTimerId = setInterval(() => {
     elapsedSeconds.value = Math.max(
@@ -104,6 +124,10 @@ function startElapsedTimer() {
       Math.floor((Date.now() - requestStartedAt) / 1000),
     )
   }, 250)
+}
+
+function startElapsedTimer() {
+  startElapsedTimerFrom(Date.now())
 }
 
 function finalizeElapsedSeconds() {
@@ -127,6 +151,9 @@ function hydrateFromStorage() {
   imageUrl.value = state.image.imageDataUrl || ''
   elapsedSeconds.value = state.image.elapsedSeconds
   showElapsed.value = state.image.showElapsed
+  statusLog.value = state.image.statusLog
+  inFlightTaskId.value = state.image.inFlightTaskId
+  inFlightStartedAt.value = state.image.inFlightStartedAt
   hydrated.value = true
 }
 
@@ -143,6 +170,9 @@ function persistImageState() {
         : null,
       elapsedSeconds: elapsedSeconds.value,
       showElapsed: showElapsed.value,
+      statusLog: statusLog.value,
+      inFlightTaskId: inFlightTaskId.value,
+      inFlightStartedAt: inFlightStartedAt.value,
     },
   })
 }
@@ -172,7 +202,7 @@ async function loadModels() {
     }
     if (current) {
       const matched = list.find(
-        (m) => modelSelectionKey(m) === modelSelectionKey(current),
+        (m) => modelSelectionKey(toSelection(m)) === modelSelectionKey(current),
       )
       if (matched) {
         selectedModel.value = toSelection(matched)
@@ -194,42 +224,49 @@ async function loadModels() {
 
 function buildTaskArgs() {
   const selected = selectedModel.value
-  return {
+  const args = {
+    version: '3.7.0',
     base_model: {
       name: selected.id,
-      variant: modelVariant(selected),
     },
     prompt: prompt.value.trim(),
     negative_prompt: negativePrompt.value.trim(),
     task_config: {
-      num_images: 1,
+      num_images_per_prompt: 1,
       image_width: 512,
       image_height: 512,
       steps: steps.value?.[0] ?? STEPS_DEFAULT,
       seed: Date.now() % 0x7fffffff,
-      safety_checker: false,
-      cfg: 7,
-    },
-    scheduler: {
-      method: 'EulerAncestralDiscreteScheduler',
-      args: {
-        timestep_spacing: 'trailing',
-      },
+      guidance_scale: 7,
     },
   }
+  if (selected.execution_dtype) {
+    args.dtype = selected.execution_dtype
+  }
+  if (selected.quantization_config != null) {
+    args.quantization_config = selected.quantization_config
+  }
+  return args
 }
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function waitForTask(taskId) {
+function recordTaskStatus(task) {
+  statusLog.value = appendStatusLogEntry(statusLog.value, task)
+}
+
+async function waitForTask(taskId, runId) {
   const started = Date.now()
   while (Date.now() - started < MAX_POLL_MS) {
+    if (!isRunActive(runId)) return null
     const task = await projectPrivateAPI.getInferenceTask(
       props.endpointToken,
       taskId,
     )
+    if (!isRunActive(runId)) return null
+    recordTaskStatus(task)
     if (task?.status === 'success') {
       return task
     }
@@ -245,13 +282,70 @@ async function waitForTask(taskId) {
   throw new Error('Image generation timed out')
 }
 
+async function finishSuccessfulTask(taskId, runId) {
+  const blob = await projectPrivateAPI.getImageBlob(
+    props.endpointToken,
+    taskId,
+    0,
+  )
+  if (!isRunActive(runId)) return
+  imageUrl.value = await blobToDataUrl(blob)
+  if (!isRunActive(runId)) return
+  clearInFlight()
+}
+
+async function runTaskLifecycle(taskId, runId) {
+  const task = await waitForTask(taskId, runId)
+  if (!isRunActive(runId) || !task) return
+  await finishSuccessfulTask(taskId, runId)
+}
+
+async function resumeInFlight() {
+  const taskId = inFlightTaskId.value
+  if (!taskId || generating.value) return
+
+  if (imageUrl.value.startsWith('data:image/')) {
+    clearInFlight()
+    return
+  }
+
+  const runId = beginRun()
+  generating.value = true
+  errorMessage.value = ''
+  startElapsedTimerFrom(inFlightStartedAt.value || Date.now())
+
+  try {
+    await runTaskLifecycle(taskId, runId)
+  } catch (error) {
+    if (!isRunActive(runId)) return
+    console.error('Playground image resume failed', error)
+    const message = resolveErrorMessage(error)
+    errorMessage.value = message
+    toast.error(
+      message === FALLBACK_ERROR
+        ? 'Image generation failed. Please try again later.'
+        : message,
+    )
+    clearInFlight()
+  } finally {
+    if (isRunActive(runId)) {
+      finalizeElapsedSeconds()
+      generating.value = false
+    }
+  }
+}
+
 async function generateImage() {
   if (!canGenerate.value) return
 
+  const runId = beginRun()
   generating.value = true
   errorMessage.value = ''
+  statusLog.value = []
+  clearInFlight()
   clearImageUrl()
   startElapsedTimer()
+  recordTaskStatus({ phase: 'sending' })
 
   try {
     const payload = {
@@ -265,18 +359,16 @@ async function generateImage() {
       props.endpointToken,
       payload,
     )
+    if (!isRunActive(runId)) return
+    recordTaskStatus(created)
     const taskId = created?.id
     if (!taskId) {
       throw new Error('Missing task id')
     }
-    await waitForTask(taskId)
-    const blob = await projectPrivateAPI.getImageBlob(
-      props.endpointToken,
-      taskId,
-      0,
-    )
-    imageUrl.value = await blobToDataUrl(blob)
+    setInFlight(Number(taskId) || taskId, requestStartedAt)
+    await runTaskLifecycle(taskId, runId)
   } catch (error) {
+    if (!isRunActive(runId)) return
     console.error('Playground image generation failed', error)
     const message = resolveErrorMessage(error)
     errorMessage.value = message
@@ -285,14 +377,28 @@ async function generateImage() {
         ? 'Image generation failed. Please try again later.'
         : message,
     )
+    clearInFlight()
   } finally {
-    finalizeElapsedSeconds()
-    generating.value = false
+    if (isRunActive(runId)) {
+      finalizeElapsedSeconds()
+      generating.value = false
+    }
   }
 }
 
 watch(
-  [selectedModel, prompt, negativePrompt, steps, imageUrl, elapsedSeconds, showElapsed],
+  [
+    selectedModel,
+    prompt,
+    negativePrompt,
+    steps,
+    imageUrl,
+    elapsedSeconds,
+    showElapsed,
+    statusLog,
+    inFlightTaskId,
+    inFlightStartedAt,
+  ],
   () => {
     persistImageState()
   },
@@ -302,21 +408,25 @@ watch(
 watch(
   () => [props.projectId, props.endpointToken],
   () => {
+    beginRun()
     stopElapsedTimer()
     generating.value = false
     errorMessage.value = ''
     hydrated.value = false
     hydrateFromStorage()
     loadModels()
+    resumeInFlight()
   },
 )
 
 onMounted(() => {
   hydrateFromStorage()
   loadModels()
+  resumeInFlight()
 })
 
 onUnmounted(() => {
+  beginRun()
   stopElapsedTimer()
 })
 </script>
@@ -402,6 +512,7 @@ onUnmounted(() => {
       >
         {{ errorMessage }}
       </p>
+      <PlaygroundStatusLog :entries="statusLog" />
     </div>
 
     <div class="overflow-hidden rounded-lg border border-border bg-muted/20">

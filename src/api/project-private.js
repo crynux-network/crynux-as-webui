@@ -125,6 +125,12 @@ class ProjectPrivateClient {
       return this._rejectError(error)
     }
   }
+
+  async getLlmResult(endpointToken, taskId) {
+    return this._request(endpointToken, 'get', `/inference_tasks/${taskId}/llm`, {
+      timeout: CHAT_TIMEOUT_MS,
+    })
+  }
 }
 
 export const projectPrivateAPI = new ProjectPrivateClient()

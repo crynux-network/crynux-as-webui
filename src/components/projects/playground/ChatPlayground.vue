@@ -11,9 +11,18 @@ import {
   loadPlaygroundState,
   savePlaygroundState,
 } from '@/lib/playground-storage'
+import { appendStatusLogEntry } from '@/lib/playground-status-log'
+import {
+  catalogToModelSelection,
+  modelSelectionKey,
+} from '@/lib/model-tags'
 import ModelPicker from '@/components/projects/playground/ModelPicker.vue'
+import PlaygroundStatusLog from '@/components/projects/playground/PlaygroundStatusLog.vue'
 
 const MAX_TURNS = 10
+const POLL_INTERVAL_MS = 2500
+const MAX_POLL_MS = 11 * 60 * 1000
+const DEFAULT_MAX_NEW_TOKENS = 2048
 const FIRST_DOWNLOAD_HINT =
   'This model is not yet available on network nodes. The first request may take much longer while nodes download it.'
 
@@ -36,10 +45,14 @@ const thinking = ref(true)
 const loadingModels = ref(false)
 const sending = ref(false)
 const pendingElapsedSeconds = ref(0)
+const statusLog = ref([])
+const inFlightTaskId = ref(null)
+const inFlightStartedAt = ref(null)
 const hydrated = ref(false)
 
 let elapsedTimerId = null
 let requestStartedAt = 0
+let activeRunId = 0
 
 const showFirstDownloadHint = computed(
   () =>
@@ -56,12 +69,35 @@ const canSend = computed(
     Boolean(draft.value.trim()),
 )
 
-const canClearHistory = computed(() => !sending.value && messages.value.length > 0)
+const canClearHistory = computed(
+  () =>
+    !sending.value &&
+    (messages.value.length > 0 ||
+      statusLog.value.length > 0 ||
+      inFlightTaskId.value != null),
+)
+
+function beginRun() {
+  activeRunId += 1
+  return activeRunId
+}
+
+function isRunActive(runId) {
+  return runId === activeRunId
+}
 
 function clearHistory() {
   if (!canClearHistory.value) return
+  beginRun()
   messages.value = []
   draft.value = ''
+  statusLog.value = []
+  clearInFlight()
+}
+
+function clearInFlight() {
+  inFlightTaskId.value = null
+  inFlightStartedAt.value = null
 }
 
 function formatDurationSeconds(seconds) {
@@ -75,10 +111,14 @@ function stopElapsedTimer() {
   }
 }
 
-function startElapsedTimer() {
+function startElapsedTimerFrom(startedAt) {
   stopElapsedTimer()
-  requestStartedAt = Date.now()
-  pendingElapsedSeconds.value = 0
+  requestStartedAt =
+    typeof startedAt === 'number' && startedAt > 0 ? startedAt : Date.now()
+  pendingElapsedSeconds.value = Math.max(
+    0,
+    Math.floor((Date.now() - requestStartedAt) / 1000),
+  )
   elapsedTimerId = setInterval(() => {
     pendingElapsedSeconds.value = Math.max(
       0,
@@ -87,25 +127,26 @@ function startElapsedTimer() {
   }, 250)
 }
 
+function startElapsedTimer() {
+  startElapsedTimerFrom(Date.now())
+}
+
 function finalizeElapsedSeconds() {
   stopElapsedTimer()
   return Math.max(0, Math.floor((Date.now() - requestStartedAt) / 1000))
 }
 
 function toSelection(model) {
-  return {
-    id: String(model.id || ''),
-    variant: '',
-    min_vram: Number(model.min_vram) || 0,
-    on_disk_node_count: Number(model.on_disk_node_count) || 0,
-    isCustom: false,
-  }
+  return catalogToModelSelection(model)
 }
 
 function hydrateFromStorage() {
   const state = loadPlaygroundState(props.projectId)
   selectedModel.value = state.chat.selectedModel
   messages.value = trimToMaxTurns(state.chat.messages)
+  statusLog.value = state.chat.statusLog
+  inFlightTaskId.value = state.chat.inFlightTaskId
+  inFlightStartedAt.value = state.chat.inFlightStartedAt
   hydrated.value = true
 }
 
@@ -115,6 +156,9 @@ function persistChatState() {
     chat: {
       selectedModel: selectedModel.value,
       messages: messages.value,
+      statusLog: statusLog.value,
+      inFlightTaskId: inFlightTaskId.value,
+      inFlightStartedAt: inFlightStartedAt.value,
     },
   })
 }
@@ -133,7 +177,9 @@ async function loadModels() {
       return
     }
     if (current) {
-      const matched = list.find((m) => m.id === current.id)
+      const matched = list.find(
+        (m) => modelSelectionKey(toSelection(m)) === modelSelectionKey(current),
+      )
       if (matched) {
         selectedModel.value = toSelection(matched)
         return
@@ -163,62 +209,189 @@ function trimToMaxTurns(list) {
   return next
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function buildTaskArgs(messageList) {
+  const selected = selectedModel.value
+  const args = {
+    version: '3.7.0',
+    model: selected.id,
+    messages: messageList.map(({ role, content }) => ({
+      role,
+      content,
+    })),
+    seed: Date.now() % 0x7fffffff,
+    template_args: {
+      enable_thinking: thinking.value,
+    },
+    generation_config: {
+      max_new_tokens: DEFAULT_MAX_NEW_TOKENS,
+      do_sample: false,
+      num_beams: 1,
+      num_return_sequences: 1,
+    },
+    quantization_config: selected.quantization_config ?? null,
+  }
+  if (selected.execution_dtype) {
+    args.dtype = selected.execution_dtype
+  }
+  return args
+}
+
+function recordTaskStatus(task) {
+  statusLog.value = appendStatusLogEntry(statusLog.value, task)
+}
+
+async function waitForTask(taskId, runId) {
+  const started = Date.now()
+  while (Date.now() - started < MAX_POLL_MS) {
+    if (!isRunActive(runId)) return null
+    const task = await projectPrivateAPI.getInferenceTask(
+      props.endpointToken,
+      taskId,
+    )
+    if (!isRunActive(runId)) return null
+    recordTaskStatus(task)
+    if (task?.status === 'success') {
+      return task
+    }
+    if (task?.status === 'failed') {
+      const detail =
+        typeof task.error_message === 'string' && task.error_message.trim()
+          ? task.error_message.trim()
+          : 'Chat request failed'
+      throw new Error(detail)
+    }
+    await sleep(POLL_INTERVAL_MS)
+  }
+  throw new Error('Chat request timed out')
+}
+
+function extractAssistantContent(result) {
+  return (
+    result?.choices?.[0]?.message?.content ??
+    result?.choices?.[0]?.text ??
+    ''
+  )
+}
+
+function setInFlight(taskId, startedAt) {
+  inFlightTaskId.value = taskId
+  inFlightStartedAt.value =
+    typeof startedAt === 'number' && startedAt > 0 ? startedAt : Date.now()
+}
+
+async function finishSuccessfulTask(taskId, runId, baseMessages) {
+  const result = await projectPrivateAPI.getLlmResult(
+    props.endpointToken,
+    taskId,
+  )
+  if (!isRunActive(runId)) return
+  const assistantContent = extractAssistantContent(result)
+  const durationSeconds = finalizeElapsedSeconds()
+  messages.value = [
+    ...baseMessages,
+    {
+      role: 'assistant',
+      content: String(assistantContent || ''),
+      durationSeconds,
+    },
+  ]
+  clearInFlight()
+}
+
+async function runTaskLifecycle(taskId, runId, baseMessages) {
+  const task = await waitForTask(taskId, runId)
+  if (!isRunActive(runId) || !task) return
+  await finishSuccessfulTask(taskId, runId, baseMessages)
+}
+
+async function resumeInFlight() {
+  const taskId = inFlightTaskId.value
+  if (!taskId || sending.value) return
+
+  const last = messages.value[messages.value.length - 1]
+  if (last?.role === 'assistant') {
+    clearInFlight()
+    return
+  }
+
+  const runId = beginRun()
+  const baseMessages = [...messages.value]
+  sending.value = true
+  startElapsedTimerFrom(inFlightStartedAt.value || Date.now())
+
+  try {
+    await runTaskLifecycle(taskId, runId, baseMessages)
+  } catch (error) {
+    if (!isRunActive(runId)) return
+    console.error('Playground chat resume failed', error)
+    toast.error('Chat request failed. Please try again later.')
+    stopElapsedTimer()
+    pendingElapsedSeconds.value = 0
+    clearInFlight()
+  } finally {
+    if (isRunActive(runId)) {
+      sending.value = false
+    }
+  }
+}
+
 async function sendMessage() {
   const content = draft.value.trim()
   if (!canSend.value || !content) return
 
+  const runId = beginRun()
   let nextMessages = [...messages.value, { role: 'user', content }]
   nextMessages = trimToMaxTurns(nextMessages)
   messages.value = nextMessages
   draft.value = ''
+  statusLog.value = []
+  clearInFlight()
   sending.value = true
   startElapsedTimer()
+  recordTaskStatus({ phase: 'sending' })
 
   try {
     const payload = {
-      model: selectedModel.value.id,
-      messages: nextMessages.map(({ role, content: messageContent }) => ({
-        role,
-        content: messageContent,
-      })),
-      chat_template_kwargs: {
-        enable_thinking: thinking.value,
-      },
+      task_type: 1,
+      task_args: JSON.stringify(buildTaskArgs(nextMessages)),
     }
     if (selectedModel.value.isCustom) {
-      payload.vram_limit = selectedModel.value.min_vram
+      payload.min_vram = selectedModel.value.min_vram
     }
-    const response = await projectPrivateAPI.chatCompletions(
+    const created = await projectPrivateAPI.createInferenceTask(
       props.endpointToken,
       payload,
     )
-    const assistantContent =
-      response?.choices?.[0]?.message?.content ??
-      response?.choices?.[0]?.text ??
-      ''
-    const durationSeconds = finalizeElapsedSeconds()
-    messages.value = [
-      ...nextMessages,
-      {
-        role: 'assistant',
-        content: String(assistantContent || ''),
-        durationSeconds,
-      },
-    ]
+    if (!isRunActive(runId)) return
+    recordTaskStatus(created)
+    const taskId = created?.id
+    if (!taskId) {
+      throw new Error('Missing task id')
+    }
+    setInFlight(Number(taskId) || taskId, requestStartedAt)
+    await runTaskLifecycle(taskId, runId, nextMessages)
   } catch (error) {
+    if (!isRunActive(runId)) return
     console.error('Playground chat completion failed', error)
     toast.error('Chat request failed. Please try again later.')
     stopElapsedTimer()
     pendingElapsedSeconds.value = 0
     messages.value = nextMessages.slice(0, -1)
     draft.value = content
+    clearInFlight()
   } finally {
-    sending.value = false
+    if (isRunActive(runId)) {
+      sending.value = false
+    }
   }
 }
 
 watch(
-  [selectedModel, messages],
+  [selectedModel, messages, statusLog, inFlightTaskId, inFlightStartedAt],
   () => {
     persistChatState()
   },
@@ -228,6 +401,7 @@ watch(
 watch(
   () => [props.projectId, props.endpointToken],
   () => {
+    beginRun()
     stopElapsedTimer()
     pendingElapsedSeconds.value = 0
     sending.value = false
@@ -236,15 +410,18 @@ watch(
     hydrated.value = false
     hydrateFromStorage()
     loadModels()
+    resumeInFlight()
   },
 )
 
 onMounted(() => {
   hydrateFromStorage()
   loadModels()
+  resumeInFlight()
 })
 
 onUnmounted(() => {
+  beginRun()
   stopElapsedTimer()
 })
 </script>
@@ -363,5 +540,7 @@ onUnmounted(() => {
         Send
       </Button>
     </div>
+
+    <PlaygroundStatusLog :entries="statusLog" />
   </div>
 </template>

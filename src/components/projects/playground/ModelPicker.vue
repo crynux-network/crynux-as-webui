@@ -16,6 +16,13 @@ import {
   normalizeHuggingFaceModelID,
   validateHuggingFaceModelID,
 } from '@/lib/huggingface-model-id'
+import {
+  catalogToModelSelection,
+  modelExecutionDtype,
+  modelQuantizationConfig,
+  modelSelectionKey,
+  quantizationTagLabel,
+} from '@/lib/model-tags'
 
 const DEFAULT_CUSTOM_VRAM = 24
 
@@ -47,30 +54,8 @@ const emit = defineEmits(['update:modelValue'])
 
 const open = ref(false)
 const query = ref('')
-const customVariant = ref('')
 const customVram = ref(String(DEFAULT_CUSTOM_VRAM))
 const customError = ref('')
-
-const isImage = computed(() => props.mode === 'image')
-
-function modelVariant(model) {
-  return typeof model?.variant === 'string' ? model.variant : ''
-}
-
-function selectionKey(selection) {
-  if (!selection?.id) return ''
-  return `${selection.id}\0${modelVariant(selection)}\0${selection.isCustom ? '1' : '0'}`
-}
-
-function catalogToSelection(model) {
-  return {
-    id: String(model.id || ''),
-    variant: modelVariant(model),
-    min_vram: Number(model.min_vram) || 0,
-    on_disk_node_count: Number(model.on_disk_node_count) || 0,
-    isCustom: false,
-  }
-}
 
 const filteredModels = computed(() => {
   const q = query.value.trim().toLowerCase()
@@ -78,16 +63,14 @@ const filteredModels = computed(() => {
     ? [...props.models]
     : props.models.filter((model) => {
         const id = String(model.id || '').toLowerCase()
-        const variant = modelVariant(model).toLowerCase()
-        return id.includes(q) || (isImage.value && variant.includes(q))
+        const dtype = modelExecutionDtype(model)
+        const quantLabel = quantizationTagLabel(
+          modelQuantizationConfig(model),
+        ).toLowerCase()
+        return id.includes(q) || dtype.includes(q) || quantLabel.includes(q)
       })
 
-  // Catalog selection with empty search: pin the selected row to the top.
-  if (
-    !q &&
-    props.modelValue?.id &&
-    !props.modelValue.isCustom
-  ) {
+  if (!q && props.modelValue?.id && !props.modelValue.isCustom) {
     const selectedIndex = matched.findIndex((model) => isSelected(model))
     if (selectedIndex > 0) {
       const [selected] = matched.splice(selectedIndex, 1)
@@ -105,7 +88,6 @@ const showCustomOption = computed(() => {
 function prefillDialogFromSelection() {
   customError.value = ''
   const selected = props.modelValue
-  customVariant.value = ''
   customVram.value = String(DEFAULT_CUSTOM_VRAM)
   if (!selected?.id) {
     query.value = ''
@@ -113,13 +95,11 @@ function prefillDialogFromSelection() {
   }
   if (selected.isCustom) {
     query.value = selected.id
-    customVariant.value = modelVariant(selected)
     customVram.value = String(
       Number(selected.min_vram) > 0 ? Number(selected.min_vram) : DEFAULT_CUSTOM_VRAM,
     )
     return
   }
-  // Catalog selection: keep search empty so the full list remains visible.
   query.value = ''
 }
 
@@ -132,13 +112,17 @@ watch(open, (isOpen) => {
 function isSelected(model) {
   if (!props.modelValue || props.modelValue.isCustom) return false
   return (
-    props.modelValue.id === model.id &&
-    modelVariant(props.modelValue) === modelVariant(model)
+    modelSelectionKey(props.modelValue) ===
+    modelSelectionKey(catalogToModelSelection(model))
   )
 }
 
+function quantTagFor(model) {
+  return quantizationTagLabel(modelQuantizationConfig(model))
+}
+
 function selectCatalogModel(model) {
-  emit('update:modelValue', catalogToSelection(model))
+  emit('update:modelValue', catalogToModelSelection(model))
   open.value = false
 }
 
@@ -156,9 +140,10 @@ function confirmCustomModel() {
   customError.value = ''
   emit('update:modelValue', {
     id: normalizeHuggingFaceModelID(query.value),
-    variant: isImage.value ? customVariant.value.trim() : '',
     min_vram: vram,
     on_disk_node_count: 0,
+    execution_dtype: '',
+    quantization_config: null,
     isCustom: true,
   })
   open.value = false
@@ -167,6 +152,10 @@ function confirmCustomModel() {
 function openPicker() {
   if (props.disabled || props.loading) return
   open.value = true
+}
+
+function tagClass() {
+  return 'inline-flex shrink-0 items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground'
 }
 </script>
 
@@ -191,20 +180,24 @@ function openPicker() {
         </div>
         <div class="flex flex-wrap gap-1.5">
           <span
-            v-if="isImage && modelVariant(modelValue)"
-            class="inline-flex shrink-0 items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground"
+            v-if="quantTagFor(modelValue)"
+            :class="tagClass()"
           >
-            {{ modelVariant(modelValue) }}
+            {{ quantTagFor(modelValue) }}
+          </span>
+          <span
+            v-if="modelExecutionDtype(modelValue)"
+            :class="tagClass()"
+          >
+            {{ modelExecutionDtype(modelValue) }}
           </span>
           <span
             v-if="modelValue.min_vram > 0"
-            class="inline-flex shrink-0 items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground"
+            :class="tagClass()"
           >
             {{ modelValue.min_vram }} GB
           </span>
-          <span
-            class="inline-flex shrink-0 items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground"
-          >
+          <span :class="tagClass()">
             {{ modelValue.on_disk_node_count }} nodes
           </span>
         </div>
@@ -238,7 +231,7 @@ function openPicker() {
           >
             <button
               v-for="model in filteredModels"
-              :key="selectionKey(catalogToSelection(model))"
+              :key="modelSelectionKey(catalogToModelSelection(model))"
               type="button"
               class="flex w-full flex-col gap-2 rounded-md border px-3 py-2.5 text-left transition-colors"
               :class="
@@ -253,20 +246,24 @@ function openPicker() {
               </div>
               <div class="flex flex-wrap gap-1.5">
                 <span
-                  v-if="isImage && modelVariant(model)"
-                  class="inline-flex shrink-0 items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground"
+                  v-if="quantTagFor(model)"
+                  :class="tagClass()"
                 >
-                  {{ modelVariant(model) }}
+                  {{ quantTagFor(model) }}
+                </span>
+                <span
+                  v-if="modelExecutionDtype(model)"
+                  :class="tagClass()"
+                >
+                  {{ modelExecutionDtype(model) }}
                 </span>
                 <span
                   v-if="Number(model.min_vram) > 0"
-                  class="inline-flex shrink-0 items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground"
+                  :class="tagClass()"
                 >
                   {{ Number(model.min_vram) }} GB
                 </span>
-                <span
-                  class="inline-flex shrink-0 items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground"
-                >
+                <span :class="tagClass()">
                   {{ Number(model.on_disk_node_count) || 0 }} nodes
                 </span>
               </div>
@@ -283,19 +280,6 @@ function openPicker() {
                 <p class="truncate text-sm text-muted-foreground">
                   {{ query.trim() }}
                 </p>
-              </div>
-
-              <div
-                v-if="isImage"
-                class="grid gap-2"
-              >
-                <Label for="playground-custom-variant">Variant</Label>
-                <Input
-                  id="playground-custom-variant"
-                  v-model="customVariant"
-                  autocomplete="off"
-                  placeholder="Optional"
-                />
               </div>
 
               <div class="grid gap-2">

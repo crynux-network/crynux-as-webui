@@ -1,3 +1,6 @@
+import { normalizeSelectedModel } from '@/lib/model-tags'
+import { normalizeStatusLog } from '@/lib/playground-status-log'
+
 const STORAGE_PREFIX = 'crynux-as-webui:playground:v1:'
 
 function storageKey(projectId) {
@@ -8,17 +11,22 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-function normalizeSelectedModel(value) {
-  if (!isPlainObject(value) || typeof value.id !== 'string' || !value.id.trim()) {
-    return null
+function normalizeInFlightTaskId(value) {
+  if (value == null || value === '') return null
+  const n = Number(value)
+  if (!Number.isInteger(n) || n <= 0) return null
+  return n
+}
+
+function normalizeInFlightStartedAt(value) {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.floor(value)
   }
-  return {
-    id: String(value.id),
-    variant: typeof value.variant === 'string' ? value.variant : '',
-    min_vram: Number(value.min_vram) || 0,
-    on_disk_node_count: Number(value.on_disk_node_count) || 0,
-    isCustom: Boolean(value.isCustom),
+  if (typeof value === 'string' && value) {
+    const parsed = Date.parse(value)
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed
   }
+  return null
 }
 
 function normalizeMessages(value) {
@@ -48,11 +56,20 @@ function normalizeMessages(value) {
 
 function normalizeChat(value) {
   if (!isPlainObject(value)) {
-    return { selectedModel: null, messages: [] }
+    return {
+      selectedModel: null,
+      messages: [],
+      statusLog: [],
+      inFlightTaskId: null,
+      inFlightStartedAt: null,
+    }
   }
   return {
     selectedModel: normalizeSelectedModel(value.selectedModel),
     messages: normalizeMessages(value.messages),
+    statusLog: normalizeStatusLog(value.statusLog),
+    inFlightTaskId: normalizeInFlightTaskId(value.inFlightTaskId),
+    inFlightStartedAt: normalizeInFlightStartedAt(value.inFlightStartedAt),
   }
 }
 
@@ -66,6 +83,9 @@ function normalizeImage(value) {
       imageDataUrl: null,
       elapsedSeconds: 0,
       showElapsed: false,
+      statusLog: [],
+      inFlightTaskId: null,
+      inFlightStartedAt: null,
     }
   }
   const steps = Number(value.steps)
@@ -88,6 +108,9 @@ function normalizeImage(value) {
         ? Math.floor(elapsedSeconds)
         : 0,
     showElapsed: Boolean(value.showElapsed) && Boolean(imageDataUrl || elapsedSeconds > 0),
+    statusLog: normalizeStatusLog(value.statusLog),
+    inFlightTaskId: normalizeInFlightTaskId(value.inFlightTaskId),
+    inFlightStartedAt: normalizeInFlightStartedAt(value.inFlightStartedAt),
   }
 }
 

@@ -8,6 +8,13 @@
  * are for Credits-per-token example cells and MUST NOT apply that floor.
  */
 
+import {
+  modelExecutionDtype,
+  modelQuantizationConfig,
+  quantizationTagLabel,
+  stableQuantizationKey,
+} from '@/lib/model-tags'
+
 export function vramWeight(minVram, baseVram) {
   const v = Number(minVram)
   const b = Number(baseVram)
@@ -74,10 +81,17 @@ export function buildExampleRows({
     const constantSeconds = Number(example.constant_seconds)
     const secondsPerInputToken = Number(example.seconds_per_input_token)
     const secondsPerOutputToken = Number(example.seconds_per_output_token)
+    const executionDtype =
+      typeof example.execution_dtype === 'string' && example.execution_dtype
+        ? example.execution_dtype
+        : modelExecutionDtype(example)
+    const quantizationConfig = modelQuantizationConfig(example)
     return {
-      id: `${example.model}-${minVram}`,
+      id: `${example.model}-${minVram}-${executionDtype}-${stableQuantizationKey(quantizationConfig)}`,
       model: example.model,
       minVram,
+      executionDtype,
+      quantizationLabel: quantizationTagLabel(quantizationConfig),
       inputCredits: estimateCredits({
         promptTokens: pricingPromptTokens,
         completionTokens: 0,

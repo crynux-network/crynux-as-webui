@@ -49,7 +49,10 @@ const playgroundTab = ref('chat')
       v-if="playgroundOpen"
       class="border-t border-border px-5 pb-5 pt-4"
     >
-      <Tabs v-model="playgroundTab">
+      <Tabs
+        v-model="playgroundTab"
+        :unmount-on-hide="false"
+      >
         <TabsList variant="line" class="mb-4">
           <TabsTrigger value="chat">
             Chat

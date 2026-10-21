@@ -1443,8 +1443,22 @@ onUnmounted(() => {
                   >
                     <td class="px-4 py-3.5 text-foreground">
                       <div>{{ row.model }}</div>
-                      <div class="text-xs text-muted-foreground">
-                        {{ row.minVram }} GB
+                      <div class="mt-1 flex flex-wrap gap-1.5">
+                        <span
+                          v-if="row.quantizationLabel"
+                          class="inline-flex items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium"
+                        >
+                          {{ row.quantizationLabel }}
+                        </span>
+                        <span
+                          v-if="row.executionDtype"
+                          class="inline-flex items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium"
+                        >
+                          {{ row.executionDtype }}
+                        </span>
+                        <span class="inline-flex items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium">
+                          {{ row.minVram }} GB
+                        </span>
                       </div>
                     </td>
                     <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
@@ -1495,8 +1509,22 @@ onUnmounted(() => {
                   >
                     <td class="px-4 py-3.5 text-foreground">
                       <div>{{ row.model }}</div>
-                      <div class="text-xs text-muted-foreground">
-                        {{ row.minVram }} GB
+                      <div class="mt-1 flex flex-wrap gap-1.5">
+                        <span
+                          v-if="row.quantizationLabel"
+                          class="inline-flex items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium"
+                        >
+                          {{ row.quantizationLabel }}
+                        </span>
+                        <span
+                          v-if="row.executionDtype"
+                          class="inline-flex items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium"
+                        >
+                          {{ row.executionDtype }}
+                        </span>
+                        <span class="inline-flex items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium">
+                          {{ row.minVram }} GB
+                        </span>
                       </div>
                     </td>
                     <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
