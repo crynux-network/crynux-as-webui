@@ -14,7 +14,7 @@ export const serviceTabs = [
   {
     id: 'llm',
     label: 'LLM',
-    title: 'OpenAI-Compliant LLM API',
+    title: 'OpenAI-Compatible LLM API',
     points: [
       {
         title: 'Seamless Integration',
@@ -55,46 +55,48 @@ print(res)`,
   {
     id: 'image',
     label: 'Image',
-    title: 'Image Generation',
+    title: 'OpenAI-Compatible Image API',
     points: [
       {
-        title: 'Broad Model Compatibility',
-        body: 'Utilize a vast ecosystem of open-source diffusion models. The service is compatible with popular community-driven checkpoints and a wide range of custom models.',
+        title: 'OpenAI-Compatible API',
+        body: 'Create and edit images with the familiar OpenAI Images generations and edits APIs. Use the official OpenAI Python library with only a Crynux base URL and API key.',
       },
       {
-        title: 'Modular Control Architecture',
-        body: 'Achieve precise creative control with a flexible, modular architecture. The service supports components for fine-grained style adaptation (e.g., LoRA), variational autoencoders (VAEs), and structural conditioning (e.g., ControlNet).',
+        title: 'Latest Image Models',
+        body: 'Run the newest open-source image models on Crynux, including Qwen/Qwen-Image-2.1, alongside the broader Hugging Face image model ecosystem.',
       },
       {
-        title: 'Massive Parallel Processing',
-        body: 'Execute thousands of generation tasks concurrently. The Crynux network is built for high-throughput, parallel processing, delivering massive scale at a fraction of the traditional cost.',
+        title: 'Components and Quantization',
+        body: 'Swap pipeline components such as transformers, text encoders, VAEs, and LoRAs with community customizations. Quantization options such as GGUF and bitsandbytes help fit large models onto more GPUs.',
       },
     ],
-    language: 'json',
-    code: `{
-    "version": "2.0.0",
-    "base_model": {
-        "name": "stabilityai/sdxl-turbo"
-    },
-    "prompt": "stillsuit mask up, gloves, solo, highly detailed eyes...",
-    "negative_prompt": "...",
-    "task_config": {
-        "num_images": 9,
-        "steps": 1,
-        "cfg": 0
-    },
-    "lora": {
-        "model": "https://civitai.com/api/download/models/178048"
-    },
-    "controlnet": {
-        "model": "diffusers/controlnet-canny-sdxl-1.0",
-        "image_dataurl": "data:image/png;base64,12FE1373...",
-        "preprocess": {
-            "method": "canny"
-        },
-        "weight": 70
-    }
-}`,
+    language: 'python',
+    code: `from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://YOUR_CRYNUX_AS_URL",
+    api_key="YOUR_API_KEY",
+    timeout=300,
+    max_retries=1,
+)
+
+# Generations
+result = client.images.generate(
+    model="Qwen/Qwen-Image-2.1",
+    prompt="a cinematic photo of a red fox in a snowy forest",
+    size="1024x1024",
+    response_format="b64_json",
+)
+
+# Edits
+with open("input.png", "rb") as image_file:
+    result = client.images.edit(
+        model="Qwen/Qwen-Image-2.1",
+        image=image_file,
+        prompt="Change the background to a snowy mountain landscape",
+        size="1024x1024",
+        response_format="b64_json",
+    )`,
   },
   {
     id: 'training',
@@ -159,6 +161,7 @@ print(res)`,
       {
         title: '',
         body: 'Our team is hard at work building a powerful, decentralized video generation service. Please check back for future updates!',
+        nowrap: true,
       },
     ],
     language: null,

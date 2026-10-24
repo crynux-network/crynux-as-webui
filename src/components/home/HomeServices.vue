@@ -32,7 +32,7 @@ const activeTab = computed(() => serviceTabs.find((tab) => tab.id === activeId.v
 
       <div class="mt-12 grid min-w-0 gap-12 lg:grid-cols-[5fr_7fr]">
         <HomeReveal class="min-w-0">
-          <h2 class="text-3xl font-extrabold tracking-tight text-balance md:text-4xl">
+          <h2 class="whitespace-nowrap text-3xl font-extrabold tracking-tight md:text-4xl">
             {{ activeTab.title }}
           </h2>
           <div class="mt-8 space-y-6">
@@ -40,7 +40,10 @@ const activeTab = computed(() => serviceTabs.find((tab) => tab.id === activeId.v
               <h3 v-if="point.title" class="text-xl font-bold tracking-tight">
                 {{ point.title }}
               </h3>
-              <p class="mt-2 max-w-lg leading-relaxed text-muted-foreground">
+              <p
+                class="mt-2 leading-relaxed text-muted-foreground"
+                :class="point.nowrap ? 'whitespace-nowrap' : 'max-w-lg'"
+              >
                 {{ point.body }}
               </p>
             </div>
