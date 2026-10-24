@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import ModelSummary from '@/components/projects/playground/ModelSummary.vue'
 import {
   normalizeHuggingFaceModelID,
   validateHuggingFaceModelID,
@@ -20,6 +21,7 @@ import {
   catalogToModelSelection,
   modelExecutionDtype,
   modelQuantizationConfig,
+  modelReplacedComponents,
   modelSelectionKey,
   quantizationTagLabel,
 } from '@/lib/model-tags'
@@ -67,7 +69,24 @@ const filteredModels = computed(() => {
         const quantLabel = quantizationTagLabel(
           modelQuantizationConfig(model),
         ).toLowerCase()
-        return id.includes(q) || dtype.includes(q) || quantLabel.includes(q)
+        const componentMatched = modelReplacedComponents(model).some((row) => {
+          const name = row.name.toLowerCase()
+          const repo = row.repo.toLowerCase()
+          const bit = row.quantBitLabel
+            ? `-${row.quantBitLabel}`.toLowerCase()
+            : ''
+          return (
+            name.includes(q) ||
+            repo.includes(q) ||
+            `${repo}${bit}`.includes(q)
+          )
+        })
+        return (
+          id.includes(q) ||
+          dtype.includes(q) ||
+          quantLabel.includes(q) ||
+          componentMatched
+        )
       })
 
   if (!q && props.modelValue?.id && !props.modelValue.isCustom) {
@@ -117,10 +136,6 @@ function isSelected(model) {
   )
 }
 
-function quantTagFor(model) {
-  return quantizationTagLabel(modelQuantizationConfig(model))
-}
-
 function selectCatalogModel(model) {
   emit('update:modelValue', catalogToModelSelection(model))
   open.value = false
@@ -153,10 +168,6 @@ function openPicker() {
   if (props.disabled || props.loading) return
   open.value = true
 }
-
-function tagClass() {
-  return 'inline-flex shrink-0 items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground'
-}
 </script>
 
 <template>
@@ -168,45 +179,28 @@ function tagClass() {
       :disabled="disabled || loading"
       @click="openPicker"
     >
-      <div v-if="loading" class="text-sm text-muted-foreground">
+      <div
+        v-if="loading"
+        class="text-sm text-muted-foreground"
+      >
         Loading models…
       </div>
-      <div v-else-if="!modelValue" class="text-sm text-muted-foreground">
+      <div
+        v-else-if="!modelValue"
+        class="text-sm text-muted-foreground"
+      >
         Select a model
       </div>
-      <div v-else class="min-w-0 flex-1 space-y-2">
-        <div class="truncate text-sm font-semibold text-foreground">
-          {{ modelValue.id }}
-        </div>
-        <div class="flex flex-wrap gap-1.5">
-          <span
-            v-if="quantTagFor(modelValue)"
-            :class="tagClass()"
-          >
-            {{ quantTagFor(modelValue) }}
-          </span>
-          <span
-            v-if="modelExecutionDtype(modelValue)"
-            :class="tagClass()"
-          >
-            {{ modelExecutionDtype(modelValue) }}
-          </span>
-          <span
-            v-if="modelValue.min_vram > 0"
-            :class="tagClass()"
-          >
-            {{ modelValue.min_vram }} GB
-          </span>
-          <span :class="tagClass()">
-            {{ modelValue.on_disk_node_count }} nodes
-          </span>
-        </div>
-      </div>
+      <ModelSummary
+        v-else
+        class="min-w-0 flex-1"
+        :model="modelValue"
+      />
       <ChevronsUpDown class="mt-0.5 size-4 shrink-0 text-muted-foreground" />
     </button>
 
     <Dialog v-model:open="open">
-      <DialogContent class="sm:max-w-lg">
+      <DialogContent class="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Select model</DialogTitle>
           <DialogDescription>
@@ -233,7 +227,7 @@ function tagClass() {
               v-for="model in filteredModels"
               :key="modelSelectionKey(catalogToModelSelection(model))"
               type="button"
-              class="flex w-full flex-col gap-2 rounded-md border px-3 py-2.5 text-left transition-colors"
+              class="w-full rounded-md border px-3 py-2.5 text-left transition-colors"
               :class="
                 isSelected(model)
                   ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
@@ -241,32 +235,7 @@ function tagClass() {
               "
               @click="selectCatalogModel(model)"
             >
-              <div class="truncate text-sm font-semibold text-foreground">
-                {{ model.id }}
-              </div>
-              <div class="flex flex-wrap gap-1.5">
-                <span
-                  v-if="quantTagFor(model)"
-                  :class="tagClass()"
-                >
-                  {{ quantTagFor(model) }}
-                </span>
-                <span
-                  v-if="modelExecutionDtype(model)"
-                  :class="tagClass()"
-                >
-                  {{ modelExecutionDtype(model) }}
-                </span>
-                <span
-                  v-if="Number(model.min_vram) > 0"
-                  :class="tagClass()"
-                >
-                  {{ Number(model.min_vram) }} GB
-                </span>
-                <span :class="tagClass()">
-                  {{ Number(model.on_disk_node_count) || 0 }} nodes
-                </span>
-              </div>
+              <ModelSummary :model="model" />
             </button>
 
             <div

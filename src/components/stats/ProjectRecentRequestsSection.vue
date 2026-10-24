@@ -3,9 +3,11 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { CheckCircle2, Clock, CircleDot, XCircle } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { projectsAPI } from '@/api/v1/projects'
-import { formatCredits, formatGwei } from '@/lib/llm-billing'
+import { formatGwei } from '@/lib/llm-billing'
 import { formatCreditsValue, formatRecordTime } from '@/lib/credits-ui'
 import { projectErrorMessage } from '@/lib/project-ui'
+import UsageModelCell from '@/components/stats/UsageModelCell.vue'
+import UsageWorkloadCell from '@/components/stats/UsageWorkloadCell.vue'
 
 const props = defineProps({
   projectId: {
@@ -47,11 +49,6 @@ function formatRequestDuration(durationMs) {
 function formatNullableCredits(value, status) {
   if (status === 'failed' || value == null) return '—'
   return formatCreditsValue(value)
-}
-
-function formatNullableTokens(value) {
-  if (value == null) return '—'
-  return formatCredits(value || 0)
 }
 
 function stopRefresh() {
@@ -102,7 +99,7 @@ onUnmounted(stopRefresh)
     <h2 class="mb-4 text-base font-semibold tracking-tight">Recent Requests</h2>
 
     <div class="overflow-x-auto rounded-lg border border-border">
-      <table class="w-full min-w-[860px] text-left text-sm">
+      <table class="w-full min-w-[800px] text-left text-sm">
         <thead class="border-b border-border bg-muted/40 text-muted-foreground">
           <tr>
             <th class="w-10 px-3 py-2.5 font-medium">
@@ -110,8 +107,7 @@ onUnmounted(stopRefresh)
             </th>
             <th class="px-4 py-2.5 font-medium">Model</th>
             <th class="px-4 py-2.5 font-medium">VRAM</th>
-            <th class="px-4 py-2.5 font-medium">Input</th>
-            <th class="px-4 py-2.5 font-medium">Output</th>
+            <th class="px-4 py-2.5 font-medium">Usage</th>
             <th class="px-4 py-2.5 font-medium">Duration</th>
             <th class="px-4 py-2.5 font-medium">Cost Level</th>
             <th class="px-4 py-2.5 font-medium">Credits</th>
@@ -156,17 +152,27 @@ onUnmounted(stopRefresh)
               >—</span>
               <span class="sr-only">{{ requestStatusLabel(request.status) }}</span>
             </td>
-            <td class="px-4 py-2.5 max-w-[220px] truncate" :title="request.model">
-              {{ request.model }}
+            <td class="px-4 py-2.5 max-w-[260px]">
+              <UsageModelCell
+                :model="request.model"
+                :quantization-config="request.quantization_config"
+                :components="request.components"
+              />
             </td>
             <td class="px-4 py-2.5 tabular-nums">
               {{ request.billed_vram }} GB
             </td>
-            <td class="px-4 py-2.5 tabular-nums">
-              {{ formatNullableTokens(request.prompt_tokens) }}
-            </td>
-            <td class="px-4 py-2.5 tabular-nums">
-              {{ formatNullableTokens(request.completion_tokens) }}
+            <td class="px-4 py-2.5">
+              <UsageWorkloadCell
+                :task-type="request.task_type || 'llm'"
+                :prompt-tokens="request.prompt_tokens"
+                :completion-tokens="request.completion_tokens"
+                :image-width="request.image_width"
+                :image-height="request.image_height"
+                :image-steps="request.image_steps"
+                :image-count="request.image_count"
+                variant="request"
+              />
             </td>
             <td class="px-4 py-2.5 tabular-nums whitespace-nowrap">
               {{ formatRequestDuration(request.duration_ms) }}

@@ -17,6 +17,10 @@ export function projectImagesGenerationsUrl(endpointToken) {
   return `${projectLlmBaseUrl(endpointToken)}/images/generations`
 }
 
+export function projectImagesEditsUrl(endpointToken) {
+  return `${projectLlmBaseUrl(endpointToken)}/images/edits`
+}
+
 export function projectRawTaskCreateUrl(endpointToken) {
   return `${projectLlmBaseUrl(endpointToken)}/inference_tasks`
 }

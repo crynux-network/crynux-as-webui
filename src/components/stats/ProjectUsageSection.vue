@@ -10,6 +10,8 @@ import {
 } from '@/components/ui/select'
 import UsageLineChart from '@/components/stats/UsageLineChart.vue'
 import UsageDurationHistogram from '@/components/stats/UsageDurationHistogram.vue'
+import UsageModelCell from '@/components/stats/UsageModelCell.vue'
+import UsageWorkloadCell from '@/components/stats/UsageWorkloadCell.vue'
 import { projectsAPI } from '@/api/v1/projects'
 import {
   formatCompactCredits,
@@ -366,8 +368,7 @@ onMounted(() => {
               <tr>
                 <th class="px-4 py-2.5 font-medium">Model</th>
                 <th class="px-4 py-2.5 font-medium">Requests</th>
-                <th class="px-4 py-2.5 font-medium">Input tokens</th>
-                <th class="px-4 py-2.5 font-medium">Output tokens</th>
+                <th class="px-4 py-2.5 font-medium">Usage</th>
                 <th class="px-4 py-2.5 font-medium">Success rate</th>
                 <th class="px-4 py-2.5 font-medium">Credits used</th>
               </tr>
@@ -375,27 +376,30 @@ onMounted(() => {
             <tbody>
               <tr
                 v-for="item in modelStats.models"
-                :key="`${item.rank}-${item.model}`"
+                :key="`${item.rank}-${item.model_cache_hash || ''}-${item.execution_dtype || ''}-${item.model || ''}`"
                 class="border-t border-border"
               >
-                <td class="px-4 py-3 font-medium">{{ item.model || '—' }}</td>
+                <td class="px-4 py-3">
+                  <UsageModelCell
+                    :model="item.model"
+                    :quantization-config="item.quantization_config"
+                    :components="item.components"
+                  />
+                </td>
                 <td
                   class="px-4 py-3 tabular-nums"
                   :title="formatExactNumber(item.request_count)"
                 >
                   {{ formatCompactNumber(item.request_count) }}
                 </td>
-                <td
-                  class="px-4 py-3 tabular-nums"
-                  :title="formatExactNumber(item.prompt_tokens)"
-                >
-                  {{ formatCompactNumber(item.prompt_tokens) }}
-                </td>
-                <td
-                  class="px-4 py-3 tabular-nums"
-                  :title="formatExactNumber(item.completion_tokens)"
-                >
-                  {{ formatCompactNumber(item.completion_tokens) }}
+                <td class="px-4 py-3">
+                  <UsageWorkloadCell
+                    :task-type="item.task_type || 'llm'"
+                    :prompt-tokens="item.prompt_tokens"
+                    :completion-tokens="item.completion_tokens"
+                    :image-count="item.image_count"
+                    variant="top-models"
+                  />
                 </td>
                 <td class="px-4 py-3 tabular-nums">
                   {{ formatSuccessRate(item.success_rate) }}

@@ -146,7 +146,7 @@ Public homepage static assets live under `public/home/` (brand SVG and integrati
 - The Purchase dialog loads supported networks and tokens from `GET /v1/purchase/networks`. The user selects network, token, and amount. Estimated Credits MUST use integer arithmetic matching Crynux AS: `credits = floor(raw * credits_per_token / 10^decimals)` where `raw` is the token amount in base units.
 - Purchase submission MUST require the connected wagmi address to equal `auth.sessionAddress`. The dialog MUST switch the wallet to the selected network `chain_id` when needed, then call wagmi `writeContract` for ERC20 `transfer(receiving_address, raw_amount)` on the selected token contract. `raw_amount` MUST be `amount * 10^decimals` using integer arithmetic. The dialog MUST wait for the transaction receipt before treating the payment as submitted.
 - The WebUI MUST NOT treat a successful transfer as Credits credited. Credits crediting remains owned by the Crynux AS ledger scanner. After transfer success the page MUST poll `GET /v1/account` and `GET /v1/account/purchases` for a short interval and surface toast feedback when the balance updates or when the poll window ends.
-- The Purchases tab lists `GET /v1/account/purchases`. The response field MUST be `purchases`. The Usage tab lists `GET /v1/account/charges`. Both tabs MUST use offset/limit pagination and MUST show empty, loading, and retryable error states.
+- The Purchases tab lists `GET /v1/account/purchases`. The response field MUST be `purchases`. The Usage tab lists `GET /v1/account/charges`. Charges columns MUST include Model (with quantization and component repos when present), VRAM, and one Usage column: Chat rows show input/output tokens; Image rows show `W×H` and steps. Both tabs MUST use offset/limit pagination and MUST show empty, loading, and retryable error states.
 - User-facing copy MUST use Purchase terminology. The WebUI MUST NOT present this flow as a deposit.
 
 ### Project management views
@@ -367,8 +367,10 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `views/ProjectDetailView.vue` | Project detail, Cost Level, Playground, Usage charts, Recent Requests, reset key, delete |
 | `components/projects/ProjectPlaygroundSection.vue` | Collapsible Playground shell with Chat and Image tabs |
 | `components/projects/playground/*` | Chat and Image generation Playground panels |
-| `components/stats/ProjectUsageSection.vue` | Project usage charts and model top table |
-| `components/stats/ProjectRecentRequestsSection.vue` | Project recent in-progress and finished LLM request list |
+| `components/stats/ProjectUsageSection.vue` | Project usage charts and Top Models table |
+| `components/stats/ProjectRecentRequestsSection.vue` | Project recent in-progress and finished request list |
+| `components/stats/UsageWorkloadCell.vue` | Compact Chat token or Image workload / image-count cell |
+| `components/stats/UsageModelCell.vue` | Model id with quantization label and component repos |
 | `config.example.json` | Committed template for `config.json` |
 | `config.json` | Local `as_url`, `networks` (gitignored) |
 | `main.js` | App bootstrap, plugins, unauthorized handler |

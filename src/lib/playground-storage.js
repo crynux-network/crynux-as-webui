@@ -96,7 +96,9 @@ function normalizeImage(value) {
       ? value.imageDataUrl
       : null
   return {
-    selectedModel: normalizeSelectedModel(value.selectedModel),
+    selectedModel: normalizeSelectedModel(value.selectedModel, {
+      requireCacheHash: true,
+    }),
     prompt: typeof value.prompt === 'string' ? value.prompt : '',
     negativePrompt:
       typeof value.negativePrompt === 'string' ? value.negativePrompt : '',

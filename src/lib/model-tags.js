@@ -133,9 +133,74 @@ export function quantizationBitWidth(quantizationConfig) {
   return null
 }
 
-export function quantizationTagLabel(quantizationConfig) {
+export function modelCacheHash(model) {
+  return typeof model?.model_cache_hash === 'string'
+    ? model.model_cache_hash.trim()
+    : ''
+}
+
+export function modelComponents(model) {
+  return isPlainObject(model?.components) ? model.components : null
+}
+
+export function modelLora(model) {
+  return model?.lora ?? null
+}
+
+function componentRepo(override) {
+  if (!isPlainObject(override)) return ''
+  const repo = override.repo ?? override.repository
+  return typeof repo === 'string' ? repo.trim() : ''
+}
+
+function componentsToQuantizeSet(quantizationConfig) {
+  const names = quantizationConfig?.components_to_quantize
+  if (!Array.isArray(names)) return new Set()
+  return new Set(
+    names
+      .filter((name) => typeof name === 'string')
+      .map((name) => name.trim())
+      .filter(Boolean),
+  )
+}
+
+export function modelReplacedComponents(model) {
+  const components = modelComponents(model)
+  if (!components) return []
+  const quant = modelQuantizationConfig(model)
+  const toQuantize = componentsToQuantizeSet(quant)
+  const bitLabel = formatBitLabel(quantizationBitWidth(quant))
+  const rows = []
+  for (const [rawName, override] of Object.entries(components)) {
+    const name = typeof rawName === 'string' ? rawName.trim() : ''
+    if (!name) continue
+    const repo = componentRepo(override)
+    if (!repo) continue
+    rows.push({
+      name,
+      repo,
+      quantBitLabel: toQuantize.has(name) ? bitLabel : '',
+    })
+  }
+  return rows
+}
+
+export function formatMinVramLabel(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  return `>${Math.trunc(n)}GB`
+}
+
+export function quantizationBitLabel(quantizationConfig) {
   if (quantizationConfig == null || !isPlainObject(quantizationConfig)) {
-    return ''
+    return 'full'
+  }
+  return formatBitLabel(quantizationBitWidth(quantizationConfig)) || 'full'
+}
+
+export function quantizationDisplayLabel(quantizationConfig) {
+  if (quantizationConfig == null || !isPlainObject(quantizationConfig)) {
+    return 'full'
   }
   const method =
     typeof quantizationConfig.quant_method === 'string'
@@ -145,7 +210,11 @@ export function quantizationTagLabel(quantizationConfig) {
   if (method && bitLabel) return `${method}-${bitLabel}`
   if (bitLabel) return bitLabel
   if (method) return method
-  return ''
+  return 'full'
+}
+
+export function quantizationTagLabel(quantizationConfig) {
+  return quantizationDisplayLabel(quantizationConfig)
 }
 
 export function stableQuantizationKey(quantizationConfig) {
@@ -157,37 +226,59 @@ export function stableQuantizationKey(quantizationConfig) {
   }
 }
 
-export function modelSelectionKey(model) {
-  if (!model?.id) return ''
-  return [
-    String(model.id),
-    modelExecutionDtype(model),
-    stableQuantizationKey(modelQuantizationConfig(model)),
-    model.isCustom ? '1' : '0',
-  ].join('\0')
-}
-
-export function catalogToModelSelection(model) {
-  return {
-    id: String(model.id || ''),
-    min_vram: Number(model.min_vram) || 0,
-    on_disk_node_count: Number(model.on_disk_node_count) || 0,
-    execution_dtype: modelExecutionDtype(model),
-    quantization_config: modelQuantizationConfig(model),
-    isCustom: false,
-  }
-}
-
-export function normalizeSelectedModel(value) {
-  if (!isPlainObject(value) || typeof value.id !== 'string' || !value.id.trim()) {
-    return null
-  }
+function modelSelectionFields(value) {
   return {
     id: String(value.id),
     min_vram: Number(value.min_vram) || 0,
     on_disk_node_count: Number(value.on_disk_node_count) || 0,
     execution_dtype: modelExecutionDtype(value),
     quantization_config: modelQuantizationConfig(value),
+    model_cache_hash: modelCacheHash(value),
+    components: modelComponents(value),
+    lora: modelLora(value),
+  }
+}
+
+export function modelSelectionKey(model) {
+  if (!model?.id) return ''
+  if (model.isCustom) {
+    return [
+      'custom',
+      String(model.id),
+      modelExecutionDtype(model),
+      stableQuantizationKey(modelQuantizationConfig(model)),
+    ].join('\0')
+  }
+  const hash = modelCacheHash(model)
+  if (hash) return ['catalog', hash].join('\0')
+  return [
+    'catalog',
+    String(model.id),
+    modelExecutionDtype(model),
+    stableQuantizationKey(modelQuantizationConfig(model)),
+  ].join('\0')
+}
+
+export function catalogToModelSelection(model) {
+  return {
+    ...modelSelectionFields({ ...model, id: String(model.id || '') }),
+    isCustom: false,
+  }
+}
+
+export function normalizeSelectedModel(
+  value,
+  { requireCacheHash = false } = {},
+) {
+  if (!isPlainObject(value) || typeof value.id !== 'string' || !value.id.trim()) {
+    return null
+  }
+  const selection = {
+    ...modelSelectionFields(value),
     isCustom: Boolean(value.isCustom),
   }
+  if (requireCacheHash && !selection.isCustom && !selection.model_cache_hash) {
+    return null
+  }
+  return selection
 }

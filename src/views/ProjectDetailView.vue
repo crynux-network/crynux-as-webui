@@ -27,6 +27,7 @@ import ApiKeyRevealDialog from '@/components/projects/ApiKeyRevealDialog.vue'
 import DeleteProjectDialog from '@/components/projects/DeleteProjectDialog.vue'
 import RenameProjectDialog from '@/components/projects/RenameProjectDialog.vue'
 import ResetApiKeyDialog from '@/components/projects/ResetApiKeyDialog.vue'
+import PricingExampleModelCell from '@/components/projects/PricingExampleModelCell.vue'
 import ProjectPlaygroundSection from '@/components/projects/ProjectPlaygroundSection.vue'
 import ProjectUsageSection from '@/components/stats/ProjectUsageSection.vue'
 import ProjectRecentRequestsSection from '@/components/stats/ProjectRecentRequestsSection.vue'
@@ -37,6 +38,7 @@ import {
   PROJECT_API_DOCS,
   projectChatCompletionsUrl,
   projectImageModelsUrl,
+  projectImagesEditsUrl,
   projectImagesGenerationsUrl,
   projectLlmBaseUrl,
   projectModelsUrl,
@@ -50,10 +52,11 @@ import {
 } from '@/lib/project-url'
 import {
   buildExampleRows,
+  buildImageExampleRows,
   clampPriorityGwei,
   computePriorityAxis,
   defaultAutoMaxPriorityGwei,
-  formatCredits,
+  formatExampleCredits,
   formatGwei,
   formatSeconds,
   formatTokenCount,
@@ -106,6 +109,12 @@ const pricingPromptTokens = ref(1_000_000)
 const pricingCompletionTokens = ref(1_000_000)
 const timePromptTokens = ref(512)
 const timeCompletionTokens = ref(2048)
+const costLevelExampleTab = ref('chat')
+const imagePricingExamples = ref([])
+const imageExampleWidth = ref(512)
+const imageExampleHeight = ref(512)
+const imageExampleSteps = ref(20)
+const imageExampleNumImages = ref(1)
 const copiedFields = ref(new Set())
 const copiedFieldTimers = new Map()
 let prioritySaveTimer = null
@@ -180,11 +189,17 @@ const apiGuideItems = computed(() => {
           id: 'images_generations',
           method: 'POST',
           url: token ? projectImagesGenerationsUrl(token) : '',
-          purpose: 'Generate images from a text prompt.',
+          purpose: 'Image generation: create images from a text prompt.',
+        },
+        {
+          id: 'images_edits',
+          method: 'POST',
+          url: token ? projectImagesEditsUrl(token) : '',
+          purpose: 'Image edit: create images from input images and a text prompt.',
         },
       ],
       description:
-        'OpenAI Images generations API. POST to this endpoint with the project API key. Only b64_json PNG responses are supported.',
+        'OpenAI Images generations and edits APIs. POST to these endpoints with the project API key. Only b64_json PNG responses are supported.',
     },
     {
       id: 'raw_task',
@@ -310,6 +325,35 @@ const creditsTableTitle = computed(() =>
     ? 'Maximum Credits per 1M tokens'
     : 'Credits per 1M tokens',
 )
+
+const imagePricingRows = computed(() =>
+  buildImageExampleRows({
+    examples: imagePricingExamples.value,
+    priorityGwei: examplePriorityGwei.value,
+    baseVram: baseVram.value,
+    creditsPerGwei: creditsPerGwei.value,
+    exampleWidth: imageExampleWidth.value,
+    exampleHeight: imageExampleHeight.value,
+    exampleSteps: imageExampleSteps.value,
+    exampleNumImages: imageExampleNumImages.value,
+  }),
+)
+
+const imageCreditsTableTitle = computed(() =>
+  isAutoMode.value
+    ? 'Maximum Credits per image'
+    : 'Credits per image',
+)
+
+const imageExampleSizeLabel = computed(
+  () => `${imageExampleWidth.value}×${imageExampleHeight.value}`,
+)
+
+const imageExampleWorkloadNote = computed(() => {
+  const n = Number(imageExampleNumImages.value)
+  const unit = n === 1 ? 'image' : 'images'
+  return `${n} ${unit}`
+})
 
 const queueRangeBar = computed(() => {
   const low = Number(lowestPriorityGwei.value)
@@ -561,6 +605,34 @@ async function loadPricingExamples() {
   }
 }
 
+async function loadImagePricingExamples() {
+  try {
+    const data = await llmAPI.getImagePricingExamples()
+    imagePricingExamples.value = Array.isArray(data?.examples)
+      ? data.examples
+      : []
+    const nextWidth = Number(data?.example_width)
+    const nextHeight = Number(data?.example_height)
+    const nextSteps = Number(data?.example_steps)
+    const nextNumImages = Number(data?.example_num_images)
+    if (Number.isFinite(nextWidth) && nextWidth > 0) {
+      imageExampleWidth.value = nextWidth
+    }
+    if (Number.isFinite(nextHeight) && nextHeight > 0) {
+      imageExampleHeight.value = nextHeight
+    }
+    if (Number.isFinite(nextSteps) && nextSteps > 0) {
+      imageExampleSteps.value = nextSteps
+    }
+    if (Number.isFinite(nextNumImages) && nextNumImages > 0) {
+      imageExampleNumImages.value = nextNumImages
+    }
+  } catch (e) {
+    console.error('Failed to load Image pricing examples', e)
+    imagePricingExamples.value = []
+  }
+}
+
 async function loadProject() {
   loading.value = true
   try {
@@ -794,6 +866,7 @@ onMounted(async () => {
     await Promise.all([
       loadBillingConfig(),
       loadPricingExamples(),
+      loadImagePricingExamples(),
       loadProject(),
     ])
   } finally {
@@ -1423,145 +1496,240 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="grid gap-4 lg:grid-cols-2">
-            <div class="overflow-hidden rounded-xl border border-border bg-muted/30">
-              <div class="border-b border-border px-4 py-3">
-                <p class="text-sm font-medium text-foreground">
-                  {{ creditsTableTitle }}
-                </p>
-                <p class="mt-0.5 text-xs text-muted-foreground">
-                  <template v-if="isAutoMode">
-                    Estimated at the configured max Cost Level. Actual charges
-                    may be lower when the live queue position resolves below the
-                    max.
-                  </template>
-                  <template v-else>
-                    Estimates only. Actual charges may differ.
-                  </template>
-                </p>
-              </div>
-              <table class="w-full text-left text-sm">
-                <thead>
-                  <tr class="border-b border-border text-muted-foreground">
-                    <th class="px-4 py-3 font-medium">Model</th>
-                    <th class="px-4 py-3 text-right font-medium">1M Input</th>
-                    <th class="px-4 py-3 text-right font-medium">1M Output</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="row in pricingRows"
-                    :key="`credits-${row.id}`"
-                    class="border-b border-border last:border-b-0"
-                  >
-                    <td class="px-4 py-3.5 text-foreground">
-                      <div>{{ row.model }}</div>
-                      <div class="mt-1 flex flex-wrap gap-1.5">
-                        <span
-                          v-if="row.quantizationLabel"
-                          class="inline-flex items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium"
-                        >
-                          {{ row.quantizationLabel }}
-                        </span>
-                        <span
-                          v-if="row.executionDtype"
-                          class="inline-flex items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium"
-                        >
-                          {{ row.executionDtype }}
-                        </span>
-                        <span class="inline-flex items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium">
-                          {{ row.minVram }} GB
-                        </span>
-                      </div>
-                    </td>
-                    <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
-                      <span class="font-semibold">{{ formatCredits(row.inputCredits) }}</span>
-                      <span class="ml-1 text-xs font-normal text-muted-foreground">Credits</span>
-                    </td>
-                    <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
-                      <span class="font-semibold">{{ formatCredits(row.outputCredits) }}</span>
-                      <span class="ml-1 text-xs font-normal text-muted-foreground">Credits</span>
-                    </td>
-                  </tr>
-                  <tr v-if="pricingRows.length === 0">
-                    <td
-                      colspan="3"
-                      class="px-4 py-3.5 text-muted-foreground"
-                    >
-                      No model examples available.
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+          <Tabs
+            v-model="costLevelExampleTab"
+            class="flex w-full flex-col gap-4"
+          >
+            <TabsList variant="line">
+              <TabsTrigger value="chat" class="flex-none px-3">
+                Chat
+              </TabsTrigger>
+              <TabsTrigger value="image" class="flex-none px-3">
+                Image
+              </TabsTrigger>
+            </TabsList>
 
-            <div class="overflow-hidden rounded-xl border border-border bg-muted/30">
-              <div class="border-b border-border px-4 py-3">
-                <p class="text-sm font-medium text-foreground">
-                  Execution time examples
-                </p>
-                <p class="mt-0.5 text-xs text-muted-foreground">
-                  Actual execution time only. Does not include queue wait, and
-                  does not change with cost level.
-                </p>
+            <TabsContent value="chat" class="mt-0">
+              <div class="grid gap-4 lg:grid-cols-2">
+                <div class="overflow-hidden rounded-xl border border-border bg-muted/30">
+                  <div class="border-b border-border px-4 py-3">
+                    <p class="text-sm font-medium text-foreground">
+                      {{ creditsTableTitle }}
+                    </p>
+                    <p class="mt-0.5 text-xs text-muted-foreground">
+                      <template v-if="isAutoMode">
+                        Estimated at the configured max Cost Level. Actual charges
+                        may be lower when the live queue position resolves below the
+                        max.
+                      </template>
+                      <template v-else>
+                        Estimates only. Actual charges may differ.
+                      </template>
+                    </p>
+                  </div>
+                  <table class="w-full text-left text-sm">
+                    <thead>
+                      <tr class="border-b border-border text-muted-foreground">
+                        <th class="px-4 py-3 font-medium">Model</th>
+                        <th class="px-4 py-3 text-right font-medium">1M Input</th>
+                        <th class="px-4 py-3 text-right font-medium">1M Output</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr
+                        v-for="row in pricingRows"
+                        :key="`credits-${row.id}`"
+                        class="border-b border-border last:border-b-0"
+                      >
+                        <td class="px-4 py-3.5 text-foreground">
+                          <PricingExampleModelCell :row="row" />
+                        </td>
+                        <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
+                          <span class="font-semibold">{{ formatExampleCredits(row.inputCredits) }}</span>
+                          <span class="ml-1 text-xs font-normal text-muted-foreground">Credits</span>
+                        </td>
+                        <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
+                          <span class="font-semibold">{{ formatExampleCredits(row.outputCredits) }}</span>
+                          <span class="ml-1 text-xs font-normal text-muted-foreground">Credits</span>
+                        </td>
+                      </tr>
+                      <tr v-if="pricingRows.length === 0">
+                        <td
+                          colspan="3"
+                          class="px-4 py-3.5 text-muted-foreground"
+                        >
+                          No model examples available.
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div class="overflow-hidden rounded-xl border border-border bg-muted/30">
+                  <div class="border-b border-border px-4 py-3">
+                    <p class="text-sm font-medium text-foreground">
+                      Execution time examples
+                    </p>
+                    <p class="mt-0.5 text-xs text-muted-foreground">
+                      Actual execution time only. Does not include queue wait, and
+                      does not change with cost level.
+                    </p>
+                  </div>
+                  <table class="w-full text-left text-sm">
+                    <thead>
+                      <tr class="border-b border-border text-muted-foreground">
+                        <th class="px-4 py-3 font-medium">Model</th>
+                        <th class="px-4 py-3 text-right font-medium">Input</th>
+                        <th class="px-4 py-3 text-right font-medium">Output</th>
+                        <th class="px-4 py-3 text-right font-medium">Seconds</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr
+                        v-for="row in pricingRows"
+                        :key="`time-${row.id}`"
+                        class="border-b border-border last:border-b-0"
+                      >
+                        <td class="px-4 py-3.5 text-foreground">
+                          <PricingExampleModelCell :row="row" />
+                        </td>
+                        <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
+                          {{ formatTokenCount(timePromptTokens) }}
+                        </td>
+                        <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
+                          {{ formatTokenCount(timeCompletionTokens) }}
+                        </td>
+                        <td class="px-4 py-3.5 text-right font-semibold tabular-nums text-foreground">
+                          {{ formatSeconds(row.executionSeconds) }}
+                        </td>
+                      </tr>
+                      <tr v-if="pricingRows.length === 0">
+                        <td
+                          colspan="4"
+                          class="px-4 py-3.5 text-muted-foreground"
+                        >
+                          No model examples available.
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <table class="w-full text-left text-sm">
-                <thead>
-                  <tr class="border-b border-border text-muted-foreground">
-                    <th class="px-4 py-3 font-medium">Model</th>
-                    <th class="px-4 py-3 text-right font-medium">Input</th>
-                    <th class="px-4 py-3 text-right font-medium">Output</th>
-                    <th class="px-4 py-3 text-right font-medium">Seconds</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="row in pricingRows"
-                    :key="`time-${row.id}`"
-                    class="border-b border-border last:border-b-0"
-                  >
-                    <td class="px-4 py-3.5 text-foreground">
-                      <div>{{ row.model }}</div>
-                      <div class="mt-1 flex flex-wrap gap-1.5">
-                        <span
-                          v-if="row.quantizationLabel"
-                          class="inline-flex items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium"
+            </TabsContent>
+
+            <TabsContent value="image" class="mt-0">
+              <div class="grid gap-4 lg:grid-cols-2">
+                <div class="overflow-hidden rounded-xl border border-border bg-muted/30">
+                  <div class="border-b border-border px-4 py-3">
+                    <p class="text-sm font-medium text-foreground">
+                      {{ imageCreditsTableTitle }}
+                    </p>
+                    <p class="mt-0.5 text-xs text-muted-foreground">
+                      <template v-if="isAutoMode">
+                        Estimated for {{ imageExampleWorkloadNote }} at the
+                        configured max Cost Level. Actual charges may be lower
+                        when the live queue position resolves below the max.
+                      </template>
+                      <template v-else>
+                        Estimates for {{ imageExampleWorkloadNote }}. Actual
+                        charges may differ.
+                      </template>
+                    </p>
+                  </div>
+                  <table class="w-full text-left text-sm">
+                    <thead>
+                      <tr class="border-b border-border text-muted-foreground">
+                        <th class="px-4 py-3 font-medium">Model</th>
+                        <th class="px-4 py-3 text-right font-medium">Size</th>
+                        <th class="px-4 py-3 text-right font-medium">Steps</th>
+                        <th class="px-4 py-3 text-right font-medium">Credits</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr
+                        v-for="row in imagePricingRows"
+                        :key="`image-credits-${row.id}`"
+                        class="border-b border-border last:border-b-0"
+                      >
+                        <td class="px-4 py-3.5 text-foreground">
+                          <PricingExampleModelCell :row="row" />
+                        </td>
+                        <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
+                          {{ imageExampleSizeLabel }}
+                        </td>
+                        <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
+                          {{ formatTokenCount(imageExampleSteps) }}
+                        </td>
+                        <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
+                          <span class="font-semibold">{{ formatExampleCredits(row.credits) }}</span>
+                          <span class="ml-1 text-xs font-normal text-muted-foreground">Credits</span>
+                        </td>
+                      </tr>
+                      <tr v-if="imagePricingRows.length === 0">
+                        <td
+                          colspan="4"
+                          class="px-4 py-3.5 text-muted-foreground"
                         >
-                          {{ row.quantizationLabel }}
-                        </span>
-                        <span
-                          v-if="row.executionDtype"
-                          class="inline-flex items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium"
+                          No model examples available.
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div class="overflow-hidden rounded-xl border border-border bg-muted/30">
+                  <div class="border-b border-border px-4 py-3">
+                    <p class="text-sm font-medium text-foreground">
+                      Execution time examples
+                    </p>
+                    <p class="mt-0.5 text-xs text-muted-foreground">
+                      Actual execution time for {{ imageExampleWorkloadNote }}.
+                      Does not include queue wait, and does not change with cost
+                      level.
+                    </p>
+                  </div>
+                  <table class="w-full text-left text-sm">
+                    <thead>
+                      <tr class="border-b border-border text-muted-foreground">
+                        <th class="px-4 py-3 font-medium">Model</th>
+                        <th class="px-4 py-3 text-right font-medium">Size</th>
+                        <th class="px-4 py-3 text-right font-medium">Steps</th>
+                        <th class="px-4 py-3 text-right font-medium">Seconds</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr
+                        v-for="row in imagePricingRows"
+                        :key="`image-time-${row.id}`"
+                        class="border-b border-border last:border-b-0"
+                      >
+                        <td class="px-4 py-3.5 text-foreground">
+                          <PricingExampleModelCell :row="row" />
+                        </td>
+                        <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
+                          {{ imageExampleSizeLabel }}
+                        </td>
+                        <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
+                          {{ formatTokenCount(imageExampleSteps) }}
+                        </td>
+                        <td class="px-4 py-3.5 text-right font-semibold tabular-nums text-foreground">
+                          {{ formatSeconds(row.executionSeconds) }}
+                        </td>
+                      </tr>
+                      <tr v-if="imagePricingRows.length === 0">
+                        <td
+                          colspan="4"
+                          class="px-4 py-3.5 text-muted-foreground"
                         >
-                          {{ row.executionDtype }}
-                        </span>
-                        <span class="inline-flex items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium">
-                          {{ row.minVram }} GB
-                        </span>
-                      </div>
-                    </td>
-                    <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
-                      {{ formatTokenCount(timePromptTokens) }}
-                    </td>
-                    <td class="px-4 py-3.5 text-right tabular-nums text-foreground">
-                      {{ formatTokenCount(timeCompletionTokens) }}
-                    </td>
-                    <td class="px-4 py-3.5 text-right font-semibold tabular-nums text-foreground">
-                      {{ formatSeconds(row.executionSeconds) }}
-                    </td>
-                  </tr>
-                  <tr v-if="pricingRows.length === 0">
-                    <td
-                      colspan="4"
-                      class="px-4 py-3.5 text-muted-foreground"
-                    >
-                      No model examples available.
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
+                          No model examples available.
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
         </div>
       </section>
 

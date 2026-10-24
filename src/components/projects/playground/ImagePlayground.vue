@@ -246,6 +246,12 @@ function buildTaskArgs() {
   if (selected.quantization_config != null) {
     args.quantization_config = selected.quantization_config
   }
+  if (selected.components != null) {
+    args.components = selected.components
+  }
+  if (selected.lora != null) {
+    args.lora = selected.lora
+  }
   return args
 }
 

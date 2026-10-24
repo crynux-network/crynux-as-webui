@@ -9,6 +9,10 @@ class LlmAPI extends BaseAPI {
   getPricingExamples() {
     return v1.get('/llm/pricing_examples')
   }
+
+  getImagePricingExamples() {
+    return v1.get('/llm/image_pricing_examples')
+  }
 }
 
 export const llmAPI = new LlmAPI()

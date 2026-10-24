@@ -9,9 +9,11 @@
  */
 
 import {
+  formatMinVramLabel,
   modelExecutionDtype,
   modelQuantizationConfig,
-  quantizationTagLabel,
+  modelReplacedComponents,
+  quantizationBitLabel,
   stableQuantizationKey,
 } from '@/lib/model-tags'
 
@@ -65,6 +67,130 @@ export function estimateExecutionSeconds({
   )
 }
 
+export function imagePixelStepUnits({
+  numImages = 1,
+  width,
+  height,
+  steps,
+}) {
+  return (
+    Number(numImages) * Number(width) * Number(height) * Number(steps)
+  )
+}
+
+export function estimateImageExecutionSeconds({
+  overheadSeconds = 0,
+  secondsPerSdPixelStep = 0,
+  numImages = 1,
+  width,
+  height,
+  steps,
+}) {
+  const units = imagePixelStepUnits({ numImages, width, height, steps })
+  return Number(overheadSeconds) + Number(secondsPerSdPixelStep) * units
+}
+
+export function estimateImageCredits({
+  priorityGwei,
+  minVram,
+  baseVram,
+  creditsPerGwei,
+  overheadSeconds = 0,
+  secondsPerSdPixelStep = 0,
+  numImages = 1,
+  width,
+  height,
+  steps,
+}) {
+  const prio = Number(priorityGwei)
+  const g = Number(creditsPerGwei)
+  if (!(prio > 0) || !(g > 0)) return 0
+
+  const weight = vramWeight(minVram, baseVram)
+  if (!(weight > 0)) return 0
+
+  const estimatedNodeSeconds = estimateImageExecutionSeconds({
+    overheadSeconds,
+    secondsPerSdPixelStep,
+    numImages,
+    width,
+    height,
+    steps,
+  })
+  if (!(estimatedNodeSeconds >= 0)) return 0
+
+  const billableGwei = prio * estimatedNodeSeconds * weight
+  return Math.trunc(billableGwei * g)
+}
+
+function imageComponentRepoLabels(example) {
+  return modelReplacedComponents(example)
+    .map((row) => {
+      if (row.quantBitLabel) return `${row.repo}-${row.quantBitLabel}`
+      return row.repo
+    })
+    .filter(Boolean)
+}
+
+export function buildImageExampleRows({
+  examples,
+  priorityGwei,
+  baseVram,
+  creditsPerGwei,
+  exampleWidth,
+  exampleHeight,
+  exampleSteps,
+  exampleNumImages,
+}) {
+  const rows = Array.isArray(examples) ? examples : []
+  const width = Number(exampleWidth)
+  const height = Number(exampleHeight)
+  const steps = Number(exampleSteps)
+  const numImages = Number(exampleNumImages)
+  return rows.map((example) => {
+    const minVram = Number(example.min_vram)
+    const overheadSeconds = Number(example.overhead_seconds)
+    const secondsPerSdPixelStep = Number(example.seconds_per_sd_pixel_step)
+    const executionDtype =
+      typeof example.execution_dtype === 'string' && example.execution_dtype
+        ? example.execution_dtype
+        : modelExecutionDtype(example)
+    const quantizationConfig = modelQuantizationConfig(example)
+    const componentRepos = imageComponentRepoLabels(example)
+    return {
+      id: `${example.model}-${minVram}-${executionDtype}-${stableQuantizationKey(quantizationConfig)}-${componentRepos.join('|')}`,
+      model: example.model,
+      minVram,
+      minVramLabel: formatMinVramLabel(minVram),
+      executionDtype,
+      quantizationLabel: quantizationBitLabel(quantizationConfig),
+      componentRepos,
+      sizeLabel: `${width}×${height}`,
+      steps,
+      credits: estimateImageCredits({
+        priorityGwei,
+        minVram,
+        baseVram,
+        creditsPerGwei,
+        overheadSeconds,
+        secondsPerSdPixelStep,
+        numImages,
+        width,
+        height,
+        steps,
+      }),
+      executionSeconds: estimateImageExecutionSeconds({
+        overheadSeconds,
+        secondsPerSdPixelStep,
+        numImages,
+        width,
+        height,
+        steps,
+      }),
+    }
+  })
+}
+
 export function buildExampleRows({
   examples,
   priorityGwei,
@@ -90,8 +216,9 @@ export function buildExampleRows({
       id: `${example.model}-${minVram}-${executionDtype}-${stableQuantizationKey(quantizationConfig)}`,
       model: example.model,
       minVram,
+      minVramLabel: formatMinVramLabel(minVram),
       executionDtype,
-      quantizationLabel: quantizationTagLabel(quantizationConfig),
+      quantizationLabel: quantizationBitLabel(quantizationConfig),
       inputCredits: estimateCredits({
         promptTokens: pricingPromptTokens,
         completionTokens: 0,
@@ -215,6 +342,13 @@ export function parsePriorityInput(raw) {
 
 export function formatCredits(credits) {
   return new Intl.NumberFormat('en-US').format(credits)
+}
+
+/** Cost Level example cells: floor may be 0; show <1 instead of 0. */
+export function formatExampleCredits(credits) {
+  const value = Number(credits)
+  if (!Number.isFinite(value) || value <= 0) return '<1'
+  return formatCredits(value)
 }
 
 export function formatTokenCount(tokens) {

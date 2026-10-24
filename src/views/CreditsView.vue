@@ -5,6 +5,8 @@ import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import PurchaseDialog from '@/components/credits/PurchaseDialog.vue'
+import UsageModelCell from '@/components/stats/UsageModelCell.vue'
+import UsageWorkloadCell from '@/components/stats/UsageWorkloadCell.vue'
 import { accountAPI } from '@/api/v1/account'
 import { purchaseAPI } from '@/api/v1/purchase'
 import { formatCredits, formatGwei } from '@/lib/llm-billing'
@@ -209,7 +211,7 @@ function formatPurchaseCredits(credits) {
 }
 
 function formatChargeCredits(credits) {
-  return `-${formatCreditsValue(credits)}`
+  return formatCreditsValue(credits)
 }
 
 watch(activeTab, (tab) => {
@@ -379,8 +381,7 @@ onUnmounted(() => {
                 <th class="px-4 py-2.5 font-medium">Project</th>
                 <th class="px-4 py-2.5 font-medium">Model</th>
                 <th class="px-4 py-2.5 font-medium">VRAM</th>
-                <th class="px-4 py-2.5 font-medium">Input</th>
-                <th class="px-4 py-2.5 font-medium">Output</th>
+                <th class="px-4 py-2.5 font-medium">Usage</th>
                 <th class="px-4 py-2.5 font-medium">Cost Level</th>
                 <th class="px-4 py-2.5 font-medium">Time</th>
               </tr>
@@ -400,17 +401,27 @@ onUnmounted(() => {
                 >
                   {{ charge.project_name || '—' }}
                 </td>
-                <td class="px-4 py-2.5 max-w-[220px] truncate" :title="charge.model">
-                  {{ charge.model }}
+                <td class="px-4 py-2.5 max-w-[260px]">
+                  <UsageModelCell
+                    :model="charge.model"
+                    :quantization-config="charge.quantization_config"
+                    :components="charge.components"
+                  />
                 </td>
                 <td class="px-4 py-2.5 tabular-nums">
                   {{ charge.billed_vram }} GB
                 </td>
-                <td class="px-4 py-2.5 tabular-nums">
-                  {{ formatCredits(charge.prompt_tokens || 0) }}
-                </td>
-                <td class="px-4 py-2.5 tabular-nums">
-                  {{ formatCredits(charge.completion_tokens || 0) }}
+                <td class="px-4 py-2.5">
+                  <UsageWorkloadCell
+                    :task-type="charge.task_type || 'llm'"
+                    :prompt-tokens="charge.prompt_tokens"
+                    :completion-tokens="charge.completion_tokens"
+                    :image-width="charge.image_width"
+                    :image-height="charge.image_height"
+                    :image-steps="charge.image_steps"
+                    :image-count="charge.image_count"
+                    variant="request"
+                  />
                 </td>
                 <td class="px-4 py-2.5 tabular-nums">
                   <template v-if="Number(charge.priority_gwei) > 0">
