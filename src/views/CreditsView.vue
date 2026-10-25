@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { Plus } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
@@ -47,11 +47,6 @@ const chargesTotal = ref(0)
 const chargesOffset = ref(0)
 const chargesLoading = ref(false)
 const chargesReady = ref(false)
-
-let pollTimer = null
-let pollAttempts = 0
-const POLL_MAX_ATTEMPTS = 12
-const POLL_INTERVAL_MS = 5000
 
 const purchasesPage = computed(() => Math.floor(purchasesOffset.value / PAGE_SIZE) + 1)
 const purchasesPageCount = computed(() =>
@@ -127,44 +122,10 @@ async function loadCharges() {
   }
 }
 
-function stopPolling() {
-  if (pollTimer != null) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-  pollAttempts = 0
-}
-
-function startCreditingPoll(previousBalance) {
-  stopPolling()
-  pollAttempts = 0
-  pollTimer = setInterval(async () => {
-    pollAttempts += 1
-    try {
-      await Promise.all([loadBalance(), loadPurchases()])
-      if (balance.value !== previousBalance) {
-        toast.success('Credits balance updated.')
-        stopPolling()
-        return
-      }
-    } catch (e) {
-      console.error('Purchase credit poll failed', e)
-    }
-    if (pollAttempts >= POLL_MAX_ATTEMPTS) {
-      toast.message(
-        'Purchase submitted. Credits may take longer to appear while confirmation is processing.',
-      )
-      stopPolling()
-    }
-  }, POLL_INTERVAL_MS)
-}
-
 function onPurchased() {
-  const previousBalance = balance.value
   purchasesOffset.value = 0
   loadBalance()
   loadPurchases()
-  startCreditingPoll(previousBalance)
 }
 
 function prevPurchases() {
@@ -227,10 +188,6 @@ onMounted(() => {
   loadBalance()
   loadNetworks()
   loadCharges()
-})
-
-onUnmounted(() => {
-  stopPolling()
 })
 </script>
 

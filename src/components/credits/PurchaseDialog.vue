@@ -1,6 +1,7 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { getConnection, readContract, switchChain, waitForTransactionReceipt, writeContract } from '@wagmi/core'
+import { Check, Copy } from 'lucide-vue-next'
 import { erc20Abi } from 'viem'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
@@ -34,6 +35,14 @@ import {
   isUserRejectedError,
   parseIntegerAmount,
 } from '@/lib/credits-ui'
+import {
+  purchaseNetworkIcon,
+  purchaseNetworkLabel,
+  purchaseTokenIcon,
+  purchaseTokenLabel,
+} from '@/lib/purchase-icons'
+import config from '@/config.json'
+import { copyText } from '@/lib/project-ui'
 
 const open = defineModel('open', { type: Boolean, default: false })
 
@@ -51,11 +60,14 @@ const selectedNetworkName = ref('')
 const selectedTokenName = ref('')
 const amountText = ref('')
 const submitting = ref(false)
+const submitPhase = ref('')
 const errorMessage = ref('')
 const walletTokenBalanceRaw = ref(null)
 const walletTokenBalance = ref(null)
 const loadingWalletBalance = ref(false)
+const depositAddressCopied = ref(false)
 let walletBalanceRequestId = 0
+let depositAddressCopiedTimer = null
 
 const selectedNetwork = computed(() =>
   networks.value.find((n) => n.name === selectedNetworkName.value) ?? null,
@@ -142,12 +154,39 @@ const estimatedCredits = computed(() => {
 const walletBalanceText = computed(() => {
   if (loadingWalletBalance.value) return 'Loading…'
   if (walletTokenBalance.value == null || !selectedToken.value) return '—'
-  return `${walletTokenBalance.value} ${selectedToken.value.name.toUpperCase()}`
+  return `${walletTokenBalance.value} ${purchaseTokenLabel(selectedToken.value.name)}`
 })
 
 const amountLabel = computed(() => {
   if (!selectedToken.value) return 'Amount'
-  return `${selectedToken.value.name.toUpperCase()} Amount`
+  return `${purchaseTokenLabel(selectedToken.value.name)} Amount`
+})
+
+const selectedNetworkIcon = computed(() =>
+  purchaseNetworkIcon(selectedNetwork.value?.name),
+)
+
+const selectedTokenIcon = computed(() =>
+  purchaseTokenIcon(selectedToken.value?.name),
+)
+
+const depositAddress = computed(
+  () => selectedNetwork.value?.receiving_address ?? '',
+)
+
+const submitStatusText = computed(() => {
+  if (submitPhase.value === 'confirming') return 'Confirming…'
+  if (submitting.value) return 'Waiting for wallet…'
+  return 'Purchase'
+})
+
+const creditPriceText = computed(() => {
+  if (!selectedToken.value) return '—'
+  const creditsPerToken = Number(selectedToken.value.credits_per_token)
+  if (!Number.isFinite(creditsPerToken) || creditsPerToken <= 0) return '—'
+  const tokenLabel = purchaseTokenLabel(selectedToken.value.name)
+  const creditsLabel = creditsPerToken === 1 ? 'Credit' : 'Credits'
+  return `1 ${tokenLabel} = ${creditsPerToken.toLocaleString('en-US')} ${creditsLabel}`
 })
 
 const summaryPayText = computed(() => {
@@ -158,7 +197,7 @@ const summaryPayText = computed(() => {
   ) {
     return '—'
   }
-  return `${parsedAmount.value.toLocaleString('en-US')} ${selectedToken.value.name.toUpperCase()}`
+  return `${parsedAmount.value.toLocaleString('en-US')} ${purchaseTokenLabel(selectedToken.value.name)}`
 })
 
 const summaryCreditsText = computed(() => {
@@ -167,15 +206,42 @@ const summaryCreditsText = computed(() => {
 })
 
 watch(open, async (isOpen) => {
-  if (!isOpen) return
+  if (!isOpen) {
+    submitting.value = false
+    submitPhase.value = ''
+    depositAddressCopied.value = false
+    if (depositAddressCopiedTimer) {
+      clearTimeout(depositAddressCopiedTimer)
+      depositAddressCopiedTimer = null
+    }
+    return
+  }
   amountText.value = ''
   errorMessage.value = ''
   submitting.value = false
+  submitPhase.value = ''
+  depositAddressCopied.value = false
   networksReady.value = false
   walletTokenBalanceRaw.value = null
   walletTokenBalance.value = null
   await loadNetworks()
 })
+
+async function onCopyDepositAddress() {
+  if (!depositAddress.value) return
+  try {
+    await copyText(depositAddress.value)
+    depositAddressCopied.value = true
+    if (depositAddressCopiedTimer) clearTimeout(depositAddressCopiedTimer)
+    depositAddressCopiedTimer = setTimeout(() => {
+      depositAddressCopied.value = false
+      depositAddressCopiedTimer = null
+    }, 2000)
+  } catch (e) {
+    console.error('Failed to copy deposit address', e)
+    toast.error('Could not copy address. Please try again later.')
+  }
+}
 
 watch(selectedNetworkName, () => {
   const first = tokens.value[0]
@@ -304,6 +370,8 @@ async function onSubmit() {
   const rawAmount = integerTokenToRaw(amount, selectedToken.value.decimals)
 
   submitting.value = true
+  submitPhase.value = 'wallet'
+  await nextTick()
   try {
     const connection = getConnection(wagmiConfig)
     if (connection.chainId !== chainId) {
@@ -319,6 +387,7 @@ async function onSubmit() {
       account: walletAddress,
     })
 
+    submitPhase.value = 'confirming'
     await waitForTransactionReceipt(wagmiConfig, { hash, chainId })
 
     open.value = false
@@ -341,6 +410,7 @@ async function onSubmit() {
     )
   } finally {
     submitting.value = false
+    submitPhase.value = ''
   }
 }
 </script>
@@ -348,54 +418,209 @@ async function onSubmit() {
 <template>
   <Dialog v-model:open="open">
     <DialogContent
-      class="sm:max-w-md"
+      class="gap-6 p-6 sm:max-w-xl"
       @pointer-down-outside="(event) => event.preventDefault()"
       @interact-outside="(event) => event.preventDefault()"
       @escape-key-down="(event) => event.preventDefault()"
     >
       <DialogHeader>
-        <DialogTitle>Purchase</DialogTitle>
+        <DialogTitle class="text-xl">
+          {{ submitting ? 'Confirm Transfer' : 'Purchase Credits' }}
+        </DialogTitle>
       </DialogHeader>
 
       <div v-if="loadingNetworks" class="text-sm text-muted-foreground">
         Loading networks…
       </div>
 
-      <form v-else-if="networksReady" class="grid gap-4" @submit.prevent="onSubmit">
-        <div class="grid gap-2">
-          <Label>Network</Label>
-          <Select v-model="selectedNetworkName" :disabled="submitting">
-            <SelectTrigger class="w-full">
-              <SelectValue placeholder="Select network" />
+      <div
+        v-else-if="networksReady && submitting"
+        class="grid gap-6"
+      >
+        <p class="text-sm text-muted-foreground">
+          <template v-if="submitPhase === 'confirming'">
+            Transaction submitted. Waiting for on-chain confirmation…
+          </template>
+          <template v-else>
+            Complete the transfer in the wallet popup that just opened.
+          </template>
+        </p>
+
+        <div class="rounded-xl border border-border bg-muted/30 px-5 py-5">
+          <div class="flex items-start justify-between gap-4">
+            <span class="pt-1 text-sm text-muted-foreground">You pay</span>
+            <div class="min-w-0 text-right">
+              <div class="flex items-center justify-end gap-2.5">
+                <img
+                  v-if="selectedTokenIcon"
+                  :src="selectedTokenIcon"
+                  alt=""
+                  class="size-7 shrink-0 rounded-full border border-border bg-white object-cover"
+                />
+                <span class="text-2xl font-semibold tabular-nums text-foreground">
+                  {{ summaryPayText }}
+                </span>
+              </div>
+              <div
+                v-if="selectedNetwork"
+                class="mt-2 flex items-center justify-end gap-2 text-sm text-muted-foreground"
+              >
+                <img
+                  v-if="selectedNetworkIcon"
+                  :src="selectedNetworkIcon"
+                  alt=""
+                  class="size-4 shrink-0 rounded-full"
+                />
+                <span>{{ purchaseNetworkLabel(selectedNetwork.name) }}</span>
+              </div>
+            </div>
+          </div>
+          <div
+            class="mt-5 flex items-baseline justify-between gap-4 border-t border-border pt-5"
+          >
+            <span class="text-sm text-muted-foreground">You receive</span>
+            <span class="tabular-nums">
+              <span class="text-2xl font-semibold text-foreground">
+                {{ summaryCreditsText }}
+              </span>
+              <span class="ml-1.5 text-sm font-medium text-muted-foreground">
+                Credits
+              </span>
+            </span>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-primary/25 bg-primary/5 px-5 py-5">
+          <div class="text-sm font-medium text-foreground">
+            Crynux AS Deposit Address
+          </div>
+          <div class="mt-3 flex items-stretch gap-2">
+            <code
+              class="min-w-0 flex-1 break-all rounded-lg border border-border bg-background px-3 py-3 font-mono text-xs leading-relaxed text-foreground"
+            >{{ depositAddress }}</code>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              class="size-11 shrink-0"
+              :disabled="!depositAddress"
+              :aria-label="
+                depositAddressCopied ? 'Copied' : 'Copy deposit address'
+              "
+              @click="onCopyDepositAddress"
+            >
+              <Check v-if="depositAddressCopied" class="size-4" />
+              <Copy v-else class="size-4" />
+            </Button>
+          </div>
+          <p class="mt-3 text-sm text-muted-foreground">
+            Cross-check this address in
+            <a
+              :href="config.discord_url"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="font-medium text-foreground underline underline-offset-4"
+            >Crynux Discord</a>
+            before confirming the transfer.
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" class="h-11 px-5" disabled>
+            {{ submitStatusText }}
+          </Button>
+        </DialogFooter>
+      </div>
+
+      <form
+        v-else-if="networksReady"
+        class="grid gap-6"
+        @submit.prevent="onSubmit"
+      >
+        <div class="grid gap-2.5">
+          <Label class="text-sm">Network</Label>
+          <Select v-model="selectedNetworkName">
+            <SelectTrigger
+              class="h-14 w-full px-3.5 text-base data-[size=default]:h-14"
+            >
+              <SelectValue placeholder="Select network">
+                <span
+                  v-if="selectedNetwork"
+                  class="flex items-center gap-3"
+                >
+                  <img
+                    v-if="selectedNetworkIcon"
+                    :src="selectedNetworkIcon"
+                    alt=""
+                    class="size-8 shrink-0 rounded-full"
+                  />
+                  <span>{{ purchaseNetworkLabel(selectedNetwork.name) }}</span>
+                </span>
+              </SelectValue>
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent class="min-w-[var(--reka-select-trigger-width)]">
               <SelectItem
                 v-for="network in networks"
                 :key="network.name"
                 :value="network.name"
+                :text-value="purchaseNetworkLabel(network.name)"
+                class="py-3 pl-3 text-base"
               >
-                {{ network.name }}
+                <span class="flex items-center gap-3">
+                  <img
+                    v-if="purchaseNetworkIcon(network.name)"
+                    :src="purchaseNetworkIcon(network.name)"
+                    alt=""
+                    class="size-8 shrink-0 rounded-full"
+                  />
+                  <span>{{ purchaseNetworkLabel(network.name) }}</span>
+                </span>
               </SelectItem>
             </SelectContent>
           </Select>
         </div>
 
-        <div class="grid gap-2">
-          <Label>Token</Label>
+        <div class="grid gap-2.5">
+          <Label class="text-sm">Token</Label>
           <Select
             v-model="selectedTokenName"
-            :disabled="submitting || tokens.length === 0"
+            :disabled="tokens.length === 0"
           >
-            <SelectTrigger class="w-full">
-              <SelectValue placeholder="Select token" />
+            <SelectTrigger
+              class="h-14 w-full px-3.5 text-base data-[size=default]:h-14"
+            >
+              <SelectValue placeholder="Select token">
+                <span
+                  v-if="selectedToken"
+                  class="flex items-center gap-3"
+                >
+                  <img
+                    v-if="selectedTokenIcon"
+                    :src="selectedTokenIcon"
+                    alt=""
+                    class="size-8 shrink-0 rounded-full border border-border bg-white object-cover"
+                  />
+                  <span>{{ purchaseTokenLabel(selectedToken.name) }}</span>
+                </span>
+              </SelectValue>
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent class="min-w-[var(--reka-select-trigger-width)]">
               <SelectItem
                 v-for="token in tokens"
                 :key="token.name"
                 :value="token.name"
+                :text-value="purchaseTokenLabel(token.name)"
+                class="py-3 pl-3 text-base"
               >
-                {{ token.name.toUpperCase() }}
+                <span class="flex items-center gap-3">
+                  <img
+                    v-if="purchaseTokenIcon(token.name)"
+                    :src="purchaseTokenIcon(token.name)"
+                    alt=""
+                    class="size-8 shrink-0 rounded-full border border-border bg-white object-cover"
+                  />
+                  <span>{{ purchaseTokenLabel(token.name) }}</span>
+                </span>
               </SelectItem>
             </SelectContent>
           </Select>
@@ -405,15 +630,15 @@ async function onSubmit() {
           </p>
         </div>
 
-        <div class="grid gap-2">
-          <Label for="purchase-amount">{{ amountLabel }}</Label>
+        <div class="grid gap-2.5">
+          <Label for="purchase-amount" class="text-sm">{{ amountLabel }}</Label>
           <Input
             id="purchase-amount"
+            class="h-14 px-3.5 text-base md:text-base"
             :model-value="amountText"
             type="text"
             inputmode="numeric"
             placeholder="1"
-            :disabled="submitting"
             autocomplete="off"
             @update:model-value="onAmountInput"
           />
@@ -423,26 +648,50 @@ async function onSubmit() {
             :max="sliderMax > 0 ? sliderMax : 1"
             :step="1"
             :disabled="sliderDisabled"
-            class="mt-4 w-full"
+            class="mt-3 w-full"
           />
           <p v-if="amountError" class="text-sm text-destructive">
             {{ amountError }}
           </p>
         </div>
 
-        <div class="mt-4 rounded-lg border border-border bg-muted/30 px-4 py-3.5">
-          <div class="flex items-baseline justify-between gap-3">
-            <span class="text-sm text-muted-foreground">You pay</span>
-            <span class="text-sm font-medium tabular-nums text-foreground">
-              {{ summaryPayText }}
+        <div class="rounded-xl border border-border bg-muted/30 px-5 py-4">
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-sm text-muted-foreground">Credit Price</span>
+            <span class="flex items-center gap-2.5">
+              <img
+                v-if="selectedTokenIcon && creditPriceText !== '—'"
+                :src="selectedTokenIcon"
+                alt=""
+                class="size-5 shrink-0 rounded-full border border-border bg-white object-cover"
+              />
+              <span class="text-sm font-medium tabular-nums text-foreground">
+                {{ creditPriceText }}
+              </span>
             </span>
           </div>
           <div
-            class="mt-3 flex items-baseline justify-between gap-3 border-t border-border pt-3"
+            class="mt-3.5 flex items-center justify-between gap-3 border-t border-border pt-3.5"
+          >
+            <span class="text-sm text-muted-foreground">You pay</span>
+            <span class="flex items-center gap-2.5">
+              <img
+                v-if="selectedTokenIcon && summaryPayText !== '—'"
+                :src="selectedTokenIcon"
+                alt=""
+                class="size-5 shrink-0 rounded-full border border-border bg-white object-cover"
+              />
+              <span class="text-base font-medium tabular-nums text-foreground">
+                {{ summaryPayText }}
+              </span>
+            </span>
+          </div>
+          <div
+            class="mt-3.5 flex items-baseline justify-between gap-3 border-t border-border pt-3.5"
           >
             <span class="text-sm text-muted-foreground">You receive</span>
             <span class="tabular-nums">
-              <span class="text-lg font-semibold text-foreground">
+              <span class="text-xl font-semibold text-foreground">
                 {{ summaryCreditsText }}
               </span>
               <span class="ml-1.5 text-sm font-medium text-muted-foreground">
@@ -456,17 +705,17 @@ async function onSubmit() {
           {{ errorMessage }}
         </p>
 
-        <DialogFooter>
+        <DialogFooter class="gap-3 sm:gap-3">
           <Button
             type="button"
             variant="outline"
-            :disabled="submitting"
+            class="h-11 px-5"
             @click="open = false"
           >
             Cancel
           </Button>
-          <Button type="submit" :disabled="!canSubmit">
-            {{ submitting ? 'Waiting for wallet…' : 'Purchase' }}
+          <Button type="submit" class="h-11 px-5" :disabled="!canSubmit">
+            Purchase
           </Button>
         </DialogFooter>
       </form>
