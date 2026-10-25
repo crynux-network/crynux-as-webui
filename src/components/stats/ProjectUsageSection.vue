@@ -72,6 +72,7 @@ function mapTokenPoints(series, range) {
     timestamp: point.timestamp,
     prompt_tokens: Number(point.prompt_tokens || 0),
     completion_tokens: Number(point.completion_tokens || 0),
+    image_count: Number(point.image_count || 0),
     complete: Boolean(point.complete),
     label: formatStatsAxisTime(point.timestamp, range),
     tooltipLabel: formatStatsTooltipTime(point.timestamp, range),
@@ -270,7 +271,7 @@ onMounted(() => {
 
       <div class="min-w-0 rounded-lg border border-border bg-muted/30 px-4 pt-4 pb-2">
         <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div class="text-sm font-medium">Tokens</div>
+          <div class="text-sm font-medium">Tokens & Images</div>
           <Select v-model="tokenRange">
             <SelectTrigger class="w-[140px]">
               <SelectValue placeholder="Range" />
@@ -291,18 +292,29 @@ onMounted(() => {
           v-else
           :points="tokenPoints"
           :x-count="tokenSeriesPointCount"
+          left-axis-label="Tokens"
+          right-axis-label="Images"
           :series="[
             {
               key: 'prompt_tokens',
               label: 'Input',
               color: 'var(--chart-1)',
               fill: 'var(--chart-1)',
+              yAxis: 'left',
             },
             {
               key: 'completion_tokens',
               label: 'Output',
+              color: 'var(--chart-2)',
+              fill: 'var(--chart-2)',
+              yAxis: 'left',
+            },
+            {
+              key: 'image_count',
+              label: 'Images',
               color: 'var(--chart-5)',
               fill: 'var(--chart-5)',
+              yAxis: 'right',
             },
           ]"
         />

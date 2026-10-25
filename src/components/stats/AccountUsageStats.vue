@@ -33,6 +33,7 @@ const metrics = computed(() => {
       { label: 'Requests', value: '0', exact: '0' },
       { label: 'Input tokens', value: '0', exact: '0' },
       { label: 'Output tokens', value: '0', exact: '0' },
+      { label: 'Images', value: '0', exact: '0' },
       { label: 'Credits used', value: '0', exact: '0' },
       { label: 'Success rate', value: '0%', exact: '0%' },
     ]
@@ -52,6 +53,11 @@ const metrics = computed(() => {
       label: 'Output tokens',
       value: formatCompactNumber(data.completion_tokens),
       exact: formatExactNumber(data.completion_tokens),
+    },
+    {
+      label: 'Images',
+      value: formatCompactNumber(data.image_count),
+      exact: formatExactNumber(data.image_count),
     },
     {
       label: 'Credits used',
@@ -137,7 +143,7 @@ onMounted(() => {
     </div>
 
     <template v-else>
-      <div class="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div class="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <div
           v-for="metric in metrics"
           :key="metric.label"

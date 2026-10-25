@@ -20,12 +20,24 @@ const props = defineProps({
     type: Number,
     default: 10,
   },
+  leftAxisLabel: {
+    type: String,
+    default: '',
+  },
+  rightAxisLabel: {
+    type: String,
+    default: '',
+  },
 })
 
 const root = ref(null)
 const { width: containerWidth } = useElementSize(root)
 const hoverIndex = ref(null)
 const emptyYMax = 10
+
+function seriesAxis(item) {
+  return item?.yAxis === 'right' ? 'right' : 'left'
+}
 
 function dataMax(points, keys) {
   let max = 0
@@ -81,26 +93,51 @@ function formatSeriesValue(item, value) {
   return formatExactNumber(value)
 }
 
+const hasDualAxis = computed(() =>
+  (props.series || []).some((item) => seriesAxis(item) === 'right') &&
+  (props.series || []).some((item) => seriesAxis(item) === 'left'),
+)
+
 const legendItems = computed(() => {
   const labeled = (props.series || []).filter((item) => item.label)
+  if (hasDualAxis.value) {
+    return labeled
+  }
   return labeled.length > 1 ? labeled : []
 })
 
 const chart = computed(() => {
   const points = props.points || []
   const denseXLabels = points.length > 8
+  const dualAxis = hasDualAxis.value
+  const leftAxisLabel = String(props.leftAxisLabel || '').trim()
+  const rightAxisLabel = String(props.rightAxisLabel || '').trim()
   const padding = {
     top: 12,
-    right: denseXLabels ? 16 : 12,
+    right: dualAxis
+      ? rightAxisLabel
+        ? 64
+        : 48
+      : denseXLabels
+        ? 16
+        : 12,
     bottom: denseXLabels ? 36 : 16,
-    left: 48,
+    left: leftAxisLabel ? 64 : 48,
   }
   const svgHeight = props.height + (denseXLabels ? 12 : 0)
   const width = Math.max(1, Math.floor(containerWidth.value || 0))
-  const keys = props.series.map((item) => item.key)
-  const rawMax = dataMax(points, keys)
-  const max = niceIntegerMax(rawMax)
-  const hasSeries = rawMax > 0
+
+  const leftSeries = props.series.filter((item) => seriesAxis(item) === 'left')
+  const rightSeries = props.series.filter((item) => seriesAxis(item) === 'right')
+  const leftKeys = leftSeries.map((item) => item.key)
+  const rightKeys = rightSeries.map((item) => item.key)
+
+  const leftRawMax = dataMax(points, leftKeys)
+  const rightRawMax = dataMax(points, rightKeys)
+  const leftMax = niceIntegerMax(leftRawMax)
+  const rightMax = niceIntegerMax(rightRawMax)
+  const hasSeries = leftRawMax > 0 || rightRawMax > 0
+
   const innerW = Math.max(1, width - padding.left - padding.right)
   const innerH = svgHeight - padding.top - padding.bottom
   const xCount = points.length > 0 ? points.length : Math.max(1, Number(props.xCount) || 10)
@@ -109,60 +146,75 @@ const chart = computed(() => {
 
   const pointXs = points.map((_, i) => padding.left + i * step)
 
-  const seriesPaths = !hasSeries ? [] : props.series.map((item, seriesIndex) => {
-    const lower = []
-    const upper = []
-    let seriesMax = 0
-    for (let i = 0; i < points.length; i += 1) {
-      const point = points[i]
-      let below = 0
-      for (let s = 0; s < seriesIndex; s += 1) {
-        below += Number(point[props.series[s].key] || 0)
-      }
-      const value = Number(point[item.key] || 0)
-      if (value > seriesMax) seriesMax = value
-      const x = pointXs[i]
-      const yLow = padding.top + innerH - (below / max) * innerH
-      const yHigh = padding.top + innerH - ((below + value) / max) * innerH
-      lower.push([x, yLow])
-      upper.push([x, yHigh])
-    }
-
-    const buildArea = (from, to) => {
-      if (to <= from) return ''
-      const top = upper.slice(from, to + 1)
-      const bottom = lower.slice(from, to + 1).reverse()
-      const d = [
-        `M ${top[0][0]} ${top[0][1]}`,
-        ...top.slice(1).map((p) => `L ${p[0]} ${p[1]}`),
-        ...bottom.map((p) => `L ${p[0]} ${p[1]}`),
-        'Z',
-      ].join(' ')
-      return d
-    }
-    const buildLine = (from, to) => {
-      if (to <= from) return ''
-      const top = upper.slice(from, to + 1)
-      return top.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p[0]} ${p[1]}`).join(' ')
-    }
-
-    const drawStroke = seriesMax > 0
-    return {
-      ...item,
-      upper,
-      drawStroke,
-      completeArea: lastCompleteIndex >= 1 ? buildArea(0, lastCompleteIndex) : '',
-      completeLine:
-        drawStroke && lastCompleteIndex >= 1 ? buildLine(0, lastCompleteIndex) : '',
-      incompleteLine: !drawStroke
-        ? ''
-        : lastCompleteIndex >= 0 && lastCompleteIndex < points.length - 1
-          ? buildLine(lastCompleteIndex, points.length - 1)
-          : points.length > 1 && lastCompleteIndex < 0
-            ? buildLine(0, points.length - 1)
-            : '',
-    }
+  const axisIndexByKey = new Map()
+  leftSeries.forEach((item, index) => {
+    axisIndexByKey.set(item.key, { axis: 'left', index, max: leftMax })
   })
+  rightSeries.forEach((item, index) => {
+    axisIndexByKey.set(item.key, { axis: 'right', index, max: rightMax })
+  })
+
+  const seriesPaths = !hasSeries
+    ? []
+    : props.series.map((item) => {
+        const meta = axisIndexByKey.get(item.key)
+        const axisMax = meta?.max || leftMax
+        const sameAxisSeries =
+          meta?.axis === 'right' ? rightSeries : leftSeries
+        const seriesIndex = meta?.index ?? 0
+        const lower = []
+        const upper = []
+        let seriesMax = 0
+        for (let i = 0; i < points.length; i += 1) {
+          const point = points[i]
+          let below = 0
+          for (let s = 0; s < seriesIndex; s += 1) {
+            below += Number(point[sameAxisSeries[s].key] || 0)
+          }
+          const value = Number(point[item.key] || 0)
+          if (value > seriesMax) seriesMax = value
+          const x = pointXs[i]
+          const yLow = padding.top + innerH - (below / axisMax) * innerH
+          const yHigh = padding.top + innerH - ((below + value) / axisMax) * innerH
+          lower.push([x, yLow])
+          upper.push([x, yHigh])
+        }
+
+        const buildArea = (from, to) => {
+          if (to <= from) return ''
+          const top = upper.slice(from, to + 1)
+          const bottom = lower.slice(from, to + 1).reverse()
+          const d = [
+            `M ${top[0][0]} ${top[0][1]}`,
+            ...top.slice(1).map((p) => `L ${p[0]} ${p[1]}`),
+            ...bottom.map((p) => `L ${p[0]} ${p[1]}`),
+            'Z',
+          ].join(' ')
+          return d
+        }
+        const buildLine = (from, to) => {
+          if (to <= from) return ''
+          const top = upper.slice(from, to + 1)
+          return top.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p[0]} ${p[1]}`).join(' ')
+        }
+
+        const drawStroke = seriesMax > 0
+        return {
+          ...item,
+          upper,
+          drawStroke,
+          completeArea: lastCompleteIndex >= 1 ? buildArea(0, lastCompleteIndex) : '',
+          completeLine:
+            drawStroke && lastCompleteIndex >= 1 ? buildLine(0, lastCompleteIndex) : '',
+          incompleteLine: !drawStroke
+            ? ''
+            : lastCompleteIndex >= 0 && lastCompleteIndex < points.length - 1
+              ? buildLine(lastCompleteIndex, points.length - 1)
+              : points.length > 1 && lastCompleteIndex < 0
+                ? buildLine(0, points.length - 1)
+                : '',
+        }
+      })
 
   const xLabels = points.map((point, idx) => ({
     x: pointXs[idx],
@@ -170,9 +222,15 @@ const chart = computed(() => {
     text: point.label || '',
   }))
 
-  const yTicks = integerTicks(max)
-  const yLabels = yTicks.map((value) => ({
-    y: padding.top + innerH - (value / max) * innerH,
+  const leftTicks = integerTicks(leftMax)
+  const yLabels = leftTicks.map((value) => ({
+    y: padding.top + innerH - (value / leftMax) * innerH,
+    text: formatStatsAxisNumber(value),
+  }))
+
+  const rightTicks = dualAxis ? integerTicks(rightMax) : []
+  const rightYLabels = rightTicks.map((value) => ({
+    y: padding.top + innerH - (value / rightMax) * innerH,
     text: formatStatsAxisNumber(value),
   }))
 
@@ -183,11 +241,33 @@ const chart = computed(() => {
     }
   }
 
+  const axisMidY = padding.top + innerH / 2
+
   return {
     width,
     seriesPaths,
     xLabels,
     yLabels,
+    rightYLabels,
+    dualAxis,
+    leftAxisColor: dualAxis ? leftSeries[0]?.color || null : null,
+    rightAxisColor: dualAxis ? rightSeries[0]?.color || null : null,
+    leftAxisLabel,
+    rightAxisLabel,
+    leftAxisTitle: leftAxisLabel
+      ? {
+          x: 12,
+          y: axisMidY,
+          transform: `rotate(-90 12 ${axisMidY})`,
+        }
+      : null,
+    rightAxisTitle: rightAxisLabel && dualAxis
+      ? {
+          x: padding.left + innerW + padding.right - 12,
+          y: axisMidY,
+          transform: `rotate(90 ${padding.left + innerW + padding.right - 12} ${axisMidY})`,
+        }
+      : null,
     xGrid,
     yGrid: yLabels.map((label) => label.y),
     padding,
@@ -234,7 +314,7 @@ const hover = computed(() => {
     incomplete: point.complete === false,
     rows,
     all:
-      rows.length > 1
+      !hasDualAxis.value && rows.length > 1
         ? {
             text: formatExactNumber(total),
           }
@@ -350,7 +430,18 @@ const tooltipStyle = computed(() => {
           :y1="chart.axis.y1"
           :x2="chart.axis.x1"
           :y2="chart.axis.y2"
-          class="stroke-border"
+          :class="chart.leftAxisColor ? undefined : 'stroke-border'"
+          :stroke="chart.leftAxisColor || undefined"
+          stroke-width="1"
+        />
+        <line
+          v-if="chart.dualAxis"
+          :x1="chart.axis.x2"
+          :y1="chart.axis.y1"
+          :x2="chart.axis.x2"
+          :y2="chart.axis.y2"
+          :class="chart.rightAxisColor ? undefined : 'stroke-border'"
+          :stroke="chart.rightAxisColor || undefined"
           stroke-width="1"
         />
         <line
@@ -406,6 +497,18 @@ const tooltipStyle = computed(() => {
             stroke-width="1.5"
           />
         </g>
+        <text
+          v-if="chart.leftAxisTitle"
+          :x="chart.leftAxisTitle.x"
+          :y="chart.leftAxisTitle.y"
+          :transform="chart.leftAxisTitle.transform"
+          text-anchor="middle"
+          class="text-[10px] font-medium"
+          :class="chart.leftAxisColor ? undefined : 'fill-muted-foreground'"
+          :fill="chart.leftAxisColor || undefined"
+        >
+          {{ chart.leftAxisLabel }}
+        </text>
         <g
           v-for="label in chart.yLabels"
           :key="`y-${label.y}-${label.text}`"
@@ -414,7 +517,36 @@ const tooltipStyle = computed(() => {
             :x="chart.padding.left - 8"
             :y="label.y + 3"
             text-anchor="end"
-            class="fill-muted-foreground text-[10px]"
+            class="text-[10px]"
+            :class="chart.leftAxisColor ? undefined : 'fill-muted-foreground'"
+            :fill="chart.leftAxisColor || undefined"
+          >
+            {{ label.text }}
+          </text>
+        </g>
+        <text
+          v-if="chart.rightAxisTitle"
+          :x="chart.rightAxisTitle.x"
+          :y="chart.rightAxisTitle.y"
+          :transform="chart.rightAxisTitle.transform"
+          text-anchor="middle"
+          class="text-[10px] font-medium"
+          :class="chart.rightAxisColor ? undefined : 'fill-muted-foreground'"
+          :fill="chart.rightAxisColor || undefined"
+        >
+          {{ chart.rightAxisLabel }}
+        </text>
+        <g
+          v-for="label in chart.rightYLabels"
+          :key="`yr-${label.y}-${label.text}`"
+        >
+          <text
+            :x="chart.axis.x2 + 8"
+            :y="label.y + 3"
+            text-anchor="start"
+            class="text-[10px]"
+            :class="chart.rightAxisColor ? undefined : 'fill-muted-foreground'"
+            :fill="chart.rightAxisColor || undefined"
           >
             {{ label.text }}
           </text>

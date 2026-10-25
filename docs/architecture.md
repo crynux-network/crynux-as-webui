@@ -276,6 +276,7 @@ optional router.push(redirect)   e.g. { name: 'projects' }
 |------------|--------|------|------|
 | `auth.js` | `login` | `POST /auth/login` | No |
 | `account.js` | `getBalance` | `GET /account` | Yes |
+| `account.js` | `getStats` | `GET /account/stats` | Yes |
 | `account.js` | `listPurchases` | `GET /account/purchases` | Yes |
 | `account.js` | `listCharges` | `GET /account/charges` | Yes |
 | `purchase.js` | `listNetworks` | `GET /purchase/networks` | Yes |
@@ -349,7 +350,7 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `api/v1/v1.js` | Axios client and auth header |
 | `api/project-private.js` | Project private LLM/Raw Task client for Playground |
 | `api/v1/auth.js` | Login API |
-| `api/v1/account.js` | Balance, purchases, charges |
+| `api/v1/account.js` | Balance, account usage stats, purchases, charges |
 | `api/v1/purchase.js` | Purchase networks config |
 | `api/v1/projects.js` | Project management, stats, and recent requests API |
 | `router/index.js` | Routes and `requiresAuth` guard |
@@ -364,10 +365,12 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `views/CreditsView.vue` | Balance, purchase, purchases and usage history |
 | `views/ProjectListView.vue` | Project list and create flow |
 | `components/projects/ProjectListItem.vue` | Project list card; Failed day count uses red when `elevated_recent_failure_rate` is true, otherwise muted gray |
+| `components/stats/AccountUsageStats.vue` | Account usage summary cards (Requests, Input tokens, Output tokens, Images, Credits used, Success rate) and Requests/Credits charts from `GET /v1/account/stats` |
 | `views/ProjectDetailView.vue` | Project detail, Cost Level, Playground, Usage charts, Recent Requests, reset key, delete |
 | `components/projects/ProjectPlaygroundSection.vue` | Collapsible Playground shell with Chat and Image tabs |
 | `components/projects/playground/*` | Chat and Image generation Playground panels |
-| `components/stats/ProjectUsageSection.vue` | Project usage charts and Top Models table |
+| `components/stats/ProjectUsageSection.vue` | Project usage charts and Top Models table; Tokens & Images chart uses dual Y-axes |
+| `components/stats/UsageLineChart.vue` | SVG line chart; optional per-series `yAxis` of `left` or `right` for dual-axis plots, with optional outer `leftAxisLabel` / `rightAxisLabel` titles |
 | `components/stats/ProjectRecentRequestsSection.vue` | Project recent in-progress and finished request list |
 | `components/stats/UsageWorkloadCell.vue` | Compact Chat token or Image workload / image-count cell |
 | `components/stats/UsageModelCell.vue` | Model id with quantization label and component repos |
