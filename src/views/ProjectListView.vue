@@ -20,6 +20,7 @@ const projectsReady = ref(false)
 const createOpen = ref(false)
 const revealOpen = ref(false)
 const revealedApiKey = ref('')
+const createdProjectId = ref(null)
 const queueConfig = ref(null)
 
 async function loadProjects() {
@@ -28,6 +29,9 @@ async function loadProjects() {
     const data = await projectsAPI.list()
     projects.value = data?.projects ?? []
     projectsReady.value = true
+    if (projects.value.length === 0) {
+      createOpen.value = true
+    }
   } catch (e) {
     console.error('Failed to list projects', e)
     toast.error(
@@ -59,13 +63,19 @@ function openProject(project) {
 }
 
 function onCreated(project) {
-  revealedApiKey.value = project?.api_key || ''
+  createdProjectId.value = project.id
+  revealedApiKey.value = project.api_key
   revealOpen.value = true
   loadProjects()
 }
 
 function onRevealDone() {
   revealedApiKey.value = ''
+  if (createdProjectId.value != null) {
+    const id = createdProjectId.value
+    createdProjectId.value = null
+    openProject({ id })
+  }
 }
 
 onMounted(() => {
