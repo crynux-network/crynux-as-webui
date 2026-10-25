@@ -1,13 +1,36 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { CheckCircle2, Clock, CircleDot, XCircle } from 'lucide-vue-next'
+import { computed, onMounted, ref, watch } from 'vue'
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  CircleDot,
+  Cpu,
+  Download,
+  Send,
+  ShieldCheck,
+  Upload,
+  XCircle,
+} from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { projectsAPI } from '@/api/v1/projects'
 import { formatGwei } from '@/lib/llm-billing'
 import { formatCreditsValue, formatRecordTime } from '@/lib/credits-ui'
 import { projectErrorMessage } from '@/lib/project-ui'
+import { requestStatusSecondaryLine } from '@/lib/playground-status-log'
 import UsageModelCell from '@/components/stats/UsageModelCell.vue'
 import UsageWorkloadCell from '@/components/stats/UsageWorkloadCell.vue'
+
+const PHASE_ICONS = {
+  send: Send,
+  clock: Clock,
+  cpu: Cpu,
+  shield: ShieldCheck,
+  upload: Upload,
+  download: Download,
+  check: CheckCircle2,
+  alert: AlertCircle,
+}
 
 const props = defineProps({
   projectId: {
@@ -19,12 +42,12 @@ const props = defineProps({
 const requests = ref([])
 const loading = ref(false)
 const ready = ref(false)
-let refreshTimer = null
 
-const hasInProgress = computed(() =>
-  requests.value.some(
-    (request) => request.status === 'queued' || request.status === 'in_progress',
-  ),
+const requestRows = computed(() =>
+  requests.value.map((request) => ({
+    request,
+    secondaryLine: requestStatusSecondaryLine(request),
+  })),
 )
 
 function requestKey(request) {
@@ -39,6 +62,10 @@ function requestStatusLabel(status) {
   return String(status)
 }
 
+function secondaryLineIcon(secondaryLine) {
+  return PHASE_ICONS[secondaryLine?.icon] || Clock
+}
+
 function formatRequestDuration(durationMs) {
   if (durationMs == null) return '—'
   const ms = Number(durationMs)
@@ -51,47 +78,25 @@ function formatNullableCredits(value, status) {
   return formatCreditsValue(value)
 }
 
-function stopRefresh() {
-  if (refreshTimer != null) {
-    clearInterval(refreshTimer)
-    refreshTimer = null
-  }
-}
-
-function syncRefresh() {
-  stopRefresh()
-  if (!hasInProgress.value) return
-  refreshTimer = setInterval(() => {
-    loadRequests({ silent: true })
-  }, 5000)
-}
-
-async function loadRequests({ silent = false } = {}) {
+async function loadRequests() {
   if (props.projectId == null || props.projectId === '') return
-  if (!silent) loading.value = true
+  loading.value = true
   try {
     const data = await projectsAPI.listRequests(props.projectId)
     requests.value = data?.requests ?? []
     ready.value = true
-    syncRefresh()
   } catch (e) {
     console.error('Failed to load project recent requests', e)
-    if (!silent) {
-      toast.error(
-        projectErrorMessage(e, 'Could not load recent requests. Please try again later.'),
-      )
-    }
+    toast.error(
+      projectErrorMessage(e, 'Could not load recent requests. Please try again later.'),
+    )
   } finally {
-    if (!silent) loading.value = false
+    loading.value = false
   }
 }
 
 onMounted(loadRequests)
-watch(() => props.projectId, () => {
-  stopRefresh()
-  loadRequests()
-})
-onUnmounted(stopRefresh)
+watch(() => props.projectId, loadRequests)
 </script>
 
 <template>
@@ -114,9 +119,9 @@ onUnmounted(stopRefresh)
             <th class="px-4 py-2.5 font-medium">Time</th>
           </tr>
         </thead>
-        <tbody v-if="!loading && requests.length > 0">
+        <tbody v-if="!loading && requestRows.length > 0">
           <tr
-            v-for="request in requests"
+            v-for="{ request, secondaryLine } in requestRows"
             :key="requestKey(request)"
             class="border-b border-border last:border-0"
           >
@@ -152,12 +157,24 @@ onUnmounted(stopRefresh)
               >—</span>
               <span class="sr-only">{{ requestStatusLabel(request.status) }}</span>
             </td>
-            <td class="px-4 py-2.5 max-w-[260px]">
+            <td class="px-4 py-2.5 max-w-[360px]">
               <UsageModelCell
                 :model="request.model"
                 :quantization-config="request.quantization_config"
                 :components="request.components"
               />
+              <p
+                v-if="secondaryLine"
+                class="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
+                :title="secondaryLine.text"
+              >
+                <component
+                  :is="secondaryLineIcon(secondaryLine)"
+                  class="size-3 shrink-0"
+                  aria-hidden="true"
+                />
+                <span class="truncate">{{ secondaryLine.text }}</span>
+              </p>
             </td>
             <td class="px-4 py-2.5 tabular-nums">
               {{ request.billed_vram }} GB

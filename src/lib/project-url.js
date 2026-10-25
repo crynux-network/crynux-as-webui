@@ -58,6 +58,8 @@ export const PROJECT_API_DOCS = {
     'https://docs.crynux.io/application-development/how-to-run-llm-using-crynux-network',
   responses:
     'https://docs.crynux.io/application-development/how-to-run-llm-using-crynux-network/responses-api',
+  images:
+    'https://docs.crynux.io/application-development/openai-compatible-image-api',
   raw_task:
     'https://docs.crynux.io/application-development/execute-tasks',
   models:

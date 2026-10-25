@@ -198,6 +198,7 @@ const apiGuideItems = computed(() => {
           purpose: 'Image edit: create images from input images and a text prompt.',
         },
       ],
+      docsUrl: PROJECT_API_DOCS.images,
       description:
         'OpenAI Images generations and edits APIs. POST to these endpoints with the project API key. Only b64_json PNG responses are supported.',
     },
