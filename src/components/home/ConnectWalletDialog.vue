@@ -76,7 +76,7 @@ function onConnect() {
             }}
           </p>
           <p
-            class="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-medium leading-relaxed text-red-700 dark:text-red-300"
+            class="rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm font-medium leading-relaxed text-green-700 dark:text-green-300"
           >
             <template v-if="step === 'sign'">
               We will not ask for a transfer, token approval, or any other
