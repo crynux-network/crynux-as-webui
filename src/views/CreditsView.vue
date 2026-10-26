@@ -26,9 +26,10 @@ import { copyText } from '@/lib/project-ui'
 import {
   buildReferralLink,
   buildReferralRulesIntro,
+  formatDepositRewardPercent,
+  formatPurchaseProgress,
   normalizePurchaseBonusTiers,
   purchaseTypeLabel,
-  referralRewardKindLabel,
   shortAddress,
 } from '@/lib/referral'
 
@@ -313,11 +314,28 @@ function formatRewardCredits(credits) {
   return `+${formatCreditsValue(credits)}`
 }
 
-function extraBonusDisplay(reward) {
-  if (reward?.kind === 'milestone_bonus') {
-    return formatRewardCredits(reward.amount)
+function formatRewardPurchases(reward) {
+  return formatPurchaseProgress(
+    reward?.prior_purchase_count,
+    purchaseBonusTiers.value,
+  )
+}
+
+function formatRewardExtraPercent(reward) {
+  const percent = formatDepositRewardPercent(reward?.extra_ratio)
+  if (percent == null || Number(percent) <= 0) return '—'
+  return `${percent}%`
+}
+
+function formatRewardExtraCredits(reward) {
+  const amount = reward?.extra_amount
+  if (amount == null || amount === '' || amount === '0') return '—'
+  try {
+    if (BigInt(String(amount)) <= 0n) return '—'
+  } catch {
+    return '—'
   }
-  return '—'
+  return `+${formatCreditsValue(amount)}`
 }
 
 watch(activeTab, (tab) => {
@@ -692,11 +710,12 @@ onMounted(() => {
           <table class="w-full min-w-[720px] text-left text-sm">
             <thead class="border-b border-border bg-muted/40 text-muted-foreground">
               <tr>
-                <th class="px-4 py-2.5 font-medium">Time</th>
-                <th class="px-4 py-2.5 font-medium">Invitee</th>
                 <th class="px-4 py-2.5 font-medium">Credits earned</th>
-                <th class="px-4 py-2.5 font-medium">Extra bonus</th>
-                <th class="px-4 py-2.5 font-medium">Kind</th>
+                <th class="px-4 py-2.5 font-medium">Purchases</th>
+                <th class="px-4 py-2.5 font-medium">Extra %</th>
+                <th class="px-4 py-2.5 font-medium">Extra Credits</th>
+                <th class="px-4 py-2.5 font-medium">Invitee</th>
+                <th class="px-4 py-2.5 font-medium">Time</th>
               </tr>
             </thead>
             <tbody v-if="!rewardsLoading && rewards.length > 0">
@@ -705,20 +724,23 @@ onMounted(() => {
                 :key="reward.id"
                 class="border-b border-border last:border-0"
               >
-                <td class="px-4 py-2.5 whitespace-nowrap">
-                  {{ formatRecordTime(reward.created_at) }}
-                </td>
-                <td class="px-4 py-2.5 font-mono text-xs">
-                  {{ shortAddress(reward.invitee_address) }}
-                </td>
                 <td class="px-4 py-2.5 tabular-nums">
                   {{ formatRewardCredits(reward.amount) }}
                 </td>
                 <td class="px-4 py-2.5 tabular-nums">
-                  {{ extraBonusDisplay(reward) }}
+                  {{ formatRewardPurchases(reward) }}
                 </td>
-                <td class="px-4 py-2.5">
-                  {{ referralRewardKindLabel(reward.kind) }}
+                <td class="px-4 py-2.5 tabular-nums">
+                  {{ formatRewardExtraPercent(reward) }}
+                </td>
+                <td class="px-4 py-2.5 tabular-nums">
+                  {{ formatRewardExtraCredits(reward) }}
+                </td>
+                <td class="px-4 py-2.5 font-mono text-xs">
+                  {{ shortAddress(reward.invitee_address) }}
+                </td>
+                <td class="px-4 py-2.5 whitespace-nowrap">
+                  {{ formatRecordTime(reward.created_at) }}
                 </td>
               </tr>
             </tbody>

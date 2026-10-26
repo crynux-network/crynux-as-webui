@@ -46,17 +46,6 @@ export function purchaseTypeLabel(type) {
   }
 }
 
-export function referralRewardKindLabel(kind) {
-  switch (kind) {
-    case 'deposit_reward':
-      return 'Deposit reward'
-    case 'milestone_bonus':
-      return 'Milestone'
-    default:
-      return kind || '—'
-  }
-}
-
 export function shortAddress(address) {
   if (!address || address.length < 12) return address || '—'
   return `${address.slice(0, 6)}…${address.slice(-4)}`
@@ -69,6 +58,24 @@ export function formatDepositRewardPercent(ratio) {
   if (!Number.isFinite(pct)) return null
   if (Number.isInteger(pct)) return String(pct)
   return String(Number(pct.toFixed(4)).toString())
+}
+
+export function nextPurchaseBonusTierMin(priorPurchaseCount, purchaseBonusTiers) {
+  const prior = Number(priorPurchaseCount)
+  if (!Number.isFinite(prior) || prior < 0) return null
+  const tiers = normalizePurchaseBonusTiers(purchaseBonusTiers)
+  for (const tier of tiers) {
+    if (tier.minPurchases > prior) return tier.minPurchases
+  }
+  return null
+}
+
+export function formatPurchaseProgress(priorPurchaseCount, purchaseBonusTiers) {
+  const prior = Number(priorPurchaseCount)
+  if (!Number.isFinite(prior) || prior < 0) return '—'
+  const next = nextPurchaseBonusTierMin(prior, purchaseBonusTiers)
+  if (next == null) return String(prior)
+  return `${prior}/${next}`
 }
 
 export function normalizePurchaseBonusTiers(purchaseBonusTiers) {
