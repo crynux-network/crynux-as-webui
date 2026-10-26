@@ -14,6 +14,7 @@ Crynux AS WebUI is a Vue 3 application that interacts with:
 │                        Vue Components                            │
 │  HomeView │ DashboardLayout │ CreditsView │ ProjectListView │   │
 │  ProjectDetailView │ home/* │ credits/* │ projects/* │ ui/*     │
+│  ConnectWalletDialog │ referral API / helpers                     │
 ├─────────────────────────────────────────────────────────────────┤
 │     Stores (Pinia)      │         Composables                   │
 │  ┌─────────┐ ┌────────┐ │  ┌──────────────────────────────┐     │
@@ -27,6 +28,7 @@ Crynux AS WebUI is a Vue 3 application that interacts with:
 │  │  - v1.js       Axios client + Bearer interceptor         │   │
 │  │  - auth.js     POST /auth/login                          │   │
 │  │  - account.js  Balance, purchases, charges               │   │
+│  │  - referral.js Referral settings and rewards             │   │
 │  │  - purchase.js Purchase networks and tokens              │   │
 │  │  - projects.js Project CRUD + API key reset              │   │
 │  │  - llm.js      LLM billing_config and pricing_examples   │   │
@@ -55,26 +57,28 @@ src/
 │       ├── v1.js              # Axios client with auth interceptor
 │       ├── auth.js            # Wallet login API
 │       ├── account.js         # Balance, purchases, charges
+│       ├── referral.js        # Referral settings and rewards
 │       ├── purchase.js        # Purchase network and token config
 │       ├── projects.js        # Project CRUD + API key reset
 │       └── llm.js             # LLM billing_config and pricing_examples
 ├── components/
 │   ├── layout/
 │   │   └── DashboardLayout.vue  # Fixed left sidebar + scrollable main
-│   ├── home/                  # Public marketing homepage sections
+│   ├── home/                  # Public marketing homepage sections + ConnectWalletDialog
 │   ├── theme/
 │   │   └── ThemeToggle.vue    # Light/dark mode toggle
 │   ├── credits/               # Purchase dialog
 │   ├── projects/              # Project dialogs and Playground
 │   └── ui/                    # shadcn-vue generated components
 ├── composables/
-│   └── use-wallet-connect.js  # Connect modal → auth → optional redirect
+│   └── use-wallet-connect.js  # AppKit connect → auth → optional redirect
 ├── content/
 │   └── home.js                # Public homepage copy, links, and code samples
 ├── lib/
 │   ├── appkit.js              # Reown AppKit + WagmiAdapter init
 │   ├── theme.js               # Light/dark theme resolve, persist, and apply
 │   ├── credits-ui.js          # Credits page formatting and purchase helpers
+│   ├── referral.js            # Invite code storage and referral display helpers
 │   ├── llm-billing.js         # Cost Level Gwei helpers and Credits/time examples
 │   ├── project-url.js         # Private LLM base URL builder
 │   ├── project-ui.js          # Project display and error helpers
@@ -87,7 +91,7 @@ src/
 │   └── wallet.js              # Wallet address synced from wagmi
 ├── views/
 │   ├── HomeView.vue           # Public marketing home + Connect
-│   ├── CreditsView.vue        # Balance, purchase, purchases/usage history
+│   ├── CreditsView.vue        # Balance, referral link, purchases, usage, referrals
 │   ├── ProjectListView.vue    # Dashboard project list + create
 │   └── ProjectDetailView.vue  # Project detail, usage charts, recent requests
 ├── assets/
@@ -142,11 +146,12 @@ Public homepage static assets live under `public/home/` (brand SVG and integrati
 
 ### Credits view
 
-- `CreditsView` shows the account Credits balance from `GET /v1/account`, a Purchase action, and two history tabs.
+- `CreditsView` shows the account Credits balance from `GET /v1/account`, a Purchase action, a Referral link block, and three history tabs.
+- The balance card MUST show the active referral link built as `{origin}/?ref=<invite_code>` from `GET /v1/account/referral`, with Copy and Reset invite code actions. Below the link it MUST show one short sentence for the current referral reward rules from that same response (`invitee_bonus`, `deposit_reward_ratio`). When `purchase_bonus_tiers` are configured, that sentence MUST include a View details / Hide details control that toggles a compact collapsed-by-default table of after-purchases and extra-reward columns. Reset MUST open a confirmation dialog that does not close on outside click and has no Cancel button; confirming MUST call `POST /v1/account/referral/code/reset`.
 - The Purchase dialog loads supported networks and tokens from `GET /v1/purchase/networks`. The user selects network, token, and amount. Estimated Credits MUST use integer arithmetic matching Crynux AS: `credits = floor(raw * credits_per_token / 10^decimals)` where `raw` is the token amount in base units.
 - Purchase submission MUST require the connected wagmi address to equal `auth.sessionAddress`. The dialog MUST switch the wallet to the selected network `chain_id` when needed, then call wagmi `writeContract` for ERC20 `transfer(receiving_address, raw_amount)` on the selected token contract. `raw_amount` MUST be `amount * 10^decimals` using integer arithmetic. While the wallet confirmation is open, the dialog MUST replace the purchase form with a confirm-transfer view that shows only the pay amount, received Credits, the Crynux AS deposit address from the selected network `receiving_address`, and a cross-check link from `config.json` → `discord_url`. The dialog MUST wait for the transaction receipt before treating the payment as submitted.
 - The WebUI MUST NOT treat a successful transfer as Credits credited. Credits crediting remains owned by the Crynux AS ledger scanner. After the purchase dialog receives the transaction receipt, it MUST close and the Credits page MUST reload `GET /v1/account` and `GET /v1/account/purchases` once. The Credits page MUST NOT poll for balance or purchase list updates.
-- The Purchases tab lists `GET /v1/account/purchases`. The response field MUST be `purchases`. The Usage tab lists `GET /v1/account/charges`. Charges columns MUST include Model (with quantization and component repos when present), VRAM, and one Usage column: Chat rows show input/output tokens; Image rows show `W×H` and steps. Both tabs MUST use offset/limit pagination and MUST show empty, loading, and retryable error states.
+- The Purchases tab lists `GET /v1/account/purchases`. The response field MUST be `purchases`. Each row MUST include `type` of `purchase`, `signup_bonus`, or `invitee_bonus`. Bonus rows MUST show `—` for Paid, Token, Network, and Tx. The Usage tab lists `GET /v1/account/charges`. Charges columns MUST include Model (with quantization and component repos when present), VRAM, and one Usage column: Chat rows show input/output tokens; Image rows show `W×H` and steps. The Referrals tab lists `GET /v1/account/referral/rewards` with Time, Invitee, Credits earned, Extra bonus, and Kind. Extra bonus MUST show the amount for historical `milestone_bonus` rows and `—` for `deposit_reward` rows. All three tabs MUST use offset/limit pagination and MUST show empty and loading states; load failures MUST use toast notifications.
 - User-facing copy MUST use Purchase terminology. The WebUI MUST NOT present this flow as a deposit.
 
 ### Project management views
@@ -192,7 +197,7 @@ Manages Crynux AS JWT session.
 
 | Action | Description |
 |--------|-------------|
-| `authenticate()` | Sign login message → call AS login → `setSession` |
+| `authenticate({ inviteCode })` | Sign login message → call AS login with optional `invite_code` → `setSession` |
 | `setSession` / `clearSession` | Session mutations |
 
 Session is persisted (`persist: true`).
@@ -202,7 +207,14 @@ Session is persisted (`persist: true`).
 - **Connected**: wagmi/AppKit has a wallet address.
 - **Authenticated**: wallet ownership proven by signature and exchanged for a JWT.
 
-The Connect entry point (`useWalletConnect().connect`) always runs the full flow: open AppKit if needed, then `auth.authenticate()`. Components that gate dashboard access MUST use `auth.isAuthenticated`.
+The Connect entry point on the homepage MUST open `ConnectWalletDialog` before AppKit. That dialog MUST NOT close on outside click. It has two steps:
+
+1. `connect`: short connect hint, prominent safety line that Crynux AS will not ask for a transfer, token approval, or other on-chain permission, and a de-emphasized optional invite code field that MUST NOT take initial focus. Primary action: Connect. Then `ensureWalletConnected()` opens AppKit if needed.
+2. `sign`: after the wallet is connected, the same dialog reopens with sign-step copy only (no Sign button) and immediately starts `signIn()` / `auth.authenticate({ inviteCode })`. Closing the dialog on the sign step without completing login MUST disconnect the wallet.
+
+The WebUI MUST NOT use a toast for the connect or sign safety notices. Components that gate dashboard access MUST use `auth.isAuthenticated`.
+
+Deep links of the form `/?ref=<code>` MUST store the code in `sessionStorage` and MUST open `ConnectWalletDialog` with the invite code prefilled when the visitor is not authenticated.
 
 If `authenticate()` returns `auth_failed` (including when the user cancels the signature prompt), `connect` MUST call `wallet.disconnectWallet()` so the next Connect opens AppKit from the wallet selection step instead of reusing the previous connection.
 
@@ -226,31 +238,38 @@ Timestamp: <unix seconds>
 ### Connect flow
 
 ```
-User clicks Connect
+User clicks Connect, or opens /?ref=<code>
         │
         ▼
-useWalletConnect().connect(redirect?)
+ConnectWalletDialog step=connect (optional invite code)
+        │
+        ▼
+ensureWalletConnected()
         │
         ├── require VITE_REOWN_PROJECT_ID
         ├── if not connected: AppKit open({ view: 'Connect' })
         ├── wait until wagmi account is connected
         ├── wallet.syncFromWagmi()
         ▼
-auth.authenticate()
+ConnectWalletDialog step=sign (notice only; no Sign button)
+        │
+        ▼
+signIn(redirect?, { inviteCode }) starts immediately
         │
         ├── signMessage(login message) via wagmi
         ├── on auth_failed (incl. signature cancel):
         │     wallet.disconnectWallet() → stop
-        ├── authAPI.login({ address, timestamp, signature })
+        ├── authAPI.login({ address, timestamp, signature, invite_code? })
         │     POST /v1/auth/login
         ├── setSession(token, expires_at, address)
+        ├── clear stored invite code
         ▼
 optional router.push(redirect)   e.g. { name: 'projects' }
 ```
 
 ### Sign out
 
-`DashboardLayout` calls `wallet.disconnectWallet()`, which disconnects wagmi and clears the auth session, then navigates to `home`.
+`DashboardLayout` MUST open a confirmation dialog before signing out. That dialog MUST NOT close on outside click and MUST NOT include a Cancel button. Confirming MUST call `wallet.disconnectWallet()`, which disconnects wagmi and clears the auth session, then navigate to `home`.
 
 ---
 
@@ -279,6 +298,9 @@ optional router.push(redirect)   e.g. { name: 'projects' }
 | `account.js` | `getStats` | `GET /account/stats` | Yes |
 | `account.js` | `listPurchases` | `GET /account/purchases` | Yes |
 | `account.js` | `listCharges` | `GET /account/charges` | Yes |
+| `referral.js` | `getReferral` | `GET /account/referral` | Yes |
+| `referral.js` | `resetInviteCode` | `POST /account/referral/code/reset` | Yes |
+| `referral.js` | `listRewards` | `GET /account/referral/rewards` | Yes |
 | `purchase.js` | `listNetworks` | `GET /purchase/networks` | Yes |
 | `projects.js` | `list` | `GET /projects` | Yes |
 | `projects.js` | `create` | `POST /projects` | Yes |
@@ -363,7 +385,10 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `components/home/*` | Homepage header, hero, services, interactive Cost Level pricing example, integrations, highlights, use cases, CTA, footer |
 | `content/home.js` | Homepage copy, links, and code samples |
 | `components/theme/ThemeToggle.vue` | Light/dark mode toggle |
-| `views/CreditsView.vue` | Balance, purchase, purchases and usage history |
+| `views/CreditsView.vue` | Balance, referral link, purchases, usage, and referrals history |
+| `components/home/ConnectWalletDialog.vue` | Pre-AppKit invite code dialog |
+| `api/v1/referral.js` | Referral settings and rewards API |
+| `lib/referral.js` | Invite code storage and referral display helpers |
 | `views/ProjectListView.vue` | Project list and create flow |
 | `components/projects/ProjectListItem.vue` | Project list card; Failed day count uses red when `elevated_recent_failure_rate` is true, otherwise muted gray |
 | `components/stats/AccountUsageStats.vue` | Account usage summary cards (Requests, Input tokens, Output tokens, Images, Credits used, Success rate) and Requests/Credits charts from `GET /v1/account/stats` |

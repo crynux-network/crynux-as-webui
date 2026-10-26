@@ -1,14 +1,17 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { Plus } from 'lucide-vue-next'
+import { Check, Copy, Plus, RefreshCw } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import PurchaseDialog from '@/components/credits/PurchaseDialog.vue'
+import ResetInviteCodeDialog from '@/components/credits/ResetInviteCodeDialog.vue'
 import UsageModelCell from '@/components/stats/UsageModelCell.vue'
 import UsageWorkloadCell from '@/components/stats/UsageWorkloadCell.vue'
 import { accountAPI } from '@/api/v1/account'
 import { purchaseAPI } from '@/api/v1/purchase'
+import { referralAPI } from '@/api/v1/referral'
 import { formatCredits, formatGwei } from '@/lib/llm-billing'
 import {
   PAGE_SIZE,
@@ -19,6 +22,15 @@ import {
   formatTokenBalance,
   shortTxHash,
 } from '@/lib/credits-ui'
+import { copyText } from '@/lib/project-ui'
+import {
+  buildReferralLink,
+  buildReferralRulesIntro,
+  normalizePurchaseBonusTiers,
+  purchaseTypeLabel,
+  referralRewardKindLabel,
+  shortAddress,
+} from '@/lib/referral'
 
 const balance = ref('0')
 const balanceLoading = ref(false)
@@ -36,6 +48,30 @@ const chainIdByNetwork = computed(() => {
 const activeTab = ref('charges')
 const purchaseOpen = ref(false)
 
+const inviteCode = ref('')
+const referralLink = computed(() => buildReferralLink(inviteCode.value))
+const depositRewardRatio = ref('')
+const inviteeBonus = ref(0)
+const purchaseBonusTiers = ref([])
+const referralRulesIntro = computed(() =>
+  buildReferralRulesIntro({
+    depositRewardRatio: depositRewardRatio.value,
+    inviteeBonus: inviteeBonus.value,
+    purchaseBonusTiers: purchaseBonusTiers.value,
+    formatCreditsValue,
+  }),
+)
+const referralBonusTierRows = computed(() =>
+  normalizePurchaseBonusTiers(purchaseBonusTiers.value),
+)
+const referralBonusTiersOpen = ref(false)
+const referralLoading = ref(false)
+const referralReady = ref(false)
+const resetCodeLoading = ref(false)
+const resetInviteCodeOpen = ref(false)
+const referralLinkCopied = ref(false)
+let referralLinkCopiedTimer = null
+
 const purchases = ref([])
 const purchasesTotal = ref(0)
 const purchasesOffset = ref(0)
@@ -48,6 +84,12 @@ const chargesOffset = ref(0)
 const chargesLoading = ref(false)
 const chargesReady = ref(false)
 
+const rewards = ref([])
+const rewardsTotal = ref(0)
+const rewardsOffset = ref(0)
+const rewardsLoading = ref(false)
+const rewardsReady = ref(false)
+
 const purchasesPage = computed(() => Math.floor(purchasesOffset.value / PAGE_SIZE) + 1)
 const purchasesPageCount = computed(() =>
   Math.max(1, Math.ceil(purchasesTotal.value / PAGE_SIZE)),
@@ -55,6 +97,10 @@ const purchasesPageCount = computed(() =>
 const chargesPage = computed(() => Math.floor(chargesOffset.value / PAGE_SIZE) + 1)
 const chargesPageCount = computed(() =>
   Math.max(1, Math.ceil(chargesTotal.value / PAGE_SIZE)),
+)
+const rewardsPage = computed(() => Math.floor(rewardsOffset.value / PAGE_SIZE) + 1)
+const rewardsPageCount = computed(() =>
+  Math.max(1, Math.ceil(rewardsTotal.value / PAGE_SIZE)),
 )
 
 async function loadBalance() {
@@ -79,6 +125,60 @@ async function loadNetworks() {
     networks.value = data?.networks ?? []
   } catch (e) {
     console.error('Failed to load purchase networks for explorer links', e)
+  }
+}
+
+async function loadReferral() {
+  referralLoading.value = true
+  try {
+    const data = await referralAPI.getReferral()
+    inviteCode.value = data?.invite_code ?? ''
+    depositRewardRatio.value = data?.deposit_reward_ratio ?? ''
+    inviteeBonus.value = Number(data?.invitee_bonus ?? 0)
+    purchaseBonusTiers.value = Array.isArray(data?.purchase_bonus_tiers)
+      ? data.purchase_bonus_tiers
+      : []
+    referralReady.value = true
+  } catch (e) {
+    console.error('Failed to load referral settings', e)
+    toast.error(
+      creditsErrorMessage(e, 'Could not load referral link. Please try again later.'),
+    )
+  } finally {
+    referralLoading.value = false
+  }
+}
+
+async function copyReferralLink() {
+  if (!referralLink.value) return
+  try {
+    await copyText(referralLink.value)
+    referralLinkCopied.value = true
+    if (referralLinkCopiedTimer) clearTimeout(referralLinkCopiedTimer)
+    referralLinkCopiedTimer = setTimeout(() => {
+      referralLinkCopied.value = false
+      referralLinkCopiedTimer = null
+    }, 1500)
+  } catch (e) {
+    console.error('Failed to copy referral link', e)
+    toast.error('Could not copy referral link. Please try again later.')
+  }
+}
+
+async function confirmResetInviteCode() {
+  resetCodeLoading.value = true
+  try {
+    const data = await referralAPI.resetInviteCode()
+    inviteCode.value = data?.invite_code ?? ''
+    resetInviteCodeOpen.value = false
+    toast.success('Invite code reset.')
+  } catch (e) {
+    console.error('Failed to reset invite code', e)
+    toast.error(
+      creditsErrorMessage(e, 'Could not reset invite code. Please try again later.'),
+    )
+  } finally {
+    resetCodeLoading.value = false
   }
 }
 
@@ -122,6 +222,26 @@ async function loadCharges() {
   }
 }
 
+async function loadRewards() {
+  rewardsLoading.value = true
+  try {
+    const data = await referralAPI.listRewards({
+      offset: rewardsOffset.value,
+      limit: PAGE_SIZE,
+    })
+    rewards.value = data?.rewards ?? []
+    rewardsTotal.value = Number(data?.total ?? 0)
+    rewardsReady.value = true
+  } catch (e) {
+    console.error('Failed to load referral rewards', e)
+    toast.error(
+      creditsErrorMessage(e, 'Could not load referrals. Please try again later.'),
+    )
+  } finally {
+    rewardsLoading.value = false
+  }
+}
+
 function onPurchased() {
   purchasesOffset.value = 0
   loadBalance()
@@ -152,14 +272,28 @@ function nextCharges() {
   loadCharges()
 }
 
+function prevRewards() {
+  if (rewardsOffset.value <= 0) return
+  rewardsOffset.value = Math.max(0, rewardsOffset.value - PAGE_SIZE)
+  loadRewards()
+}
+
+function nextRewards() {
+  if (rewardsOffset.value + PAGE_SIZE >= rewardsTotal.value) return
+  rewardsOffset.value += PAGE_SIZE
+  loadRewards()
+}
+
 function purchaseTxHref(purchase) {
+  if (!purchase?.network || !purchase?.tx_hash) return null
   return explorerTxUrl(chainIdByNetwork.value[purchase.network], purchase.tx_hash)
 }
 
 function formatPurchaseAmount(rawAmount, networkName, tokenName) {
+  if (rawAmount == null || !networkName || !tokenName) return '—'
   const network = networks.value.find((n) => n.name === networkName)
   const token = network?.tokens?.find((t) => t.name === tokenName)
-  if (!token || rawAmount == null) return '—'
+  if (!token) return '—'
   try {
     return formatTokenBalance(rawAmount, token.decimals)
   } catch {
@@ -175,6 +309,17 @@ function formatChargeCredits(credits) {
   return formatCreditsValue(credits)
 }
 
+function formatRewardCredits(credits) {
+  return `+${formatCreditsValue(credits)}`
+}
+
+function extraBonusDisplay(reward) {
+  if (reward?.kind === 'milestone_bonus') {
+    return formatRewardCredits(reward.amount)
+  }
+  return '—'
+}
+
 watch(activeTab, (tab) => {
   if (tab === 'charges' && charges.value.length === 0 && !chargesLoading.value) {
     loadCharges()
@@ -182,11 +327,15 @@ watch(activeTab, (tab) => {
   if (tab === 'purchases' && purchases.value.length === 0 && !purchasesLoading.value) {
     loadPurchases()
   }
+  if (tab === 'referrals' && rewards.value.length === 0 && !rewardsLoading.value) {
+    loadRewards()
+  }
 })
 
 onMounted(() => {
   loadBalance()
   loadNetworks()
+  loadReferral()
   loadCharges()
 })
 </script>
@@ -196,7 +345,7 @@ onMounted(() => {
     <div class="mb-8">
       <h1 class="text-2xl font-semibold tracking-tight">Credits</h1>
       <p class="mt-1 text-sm text-muted-foreground">
-        Account balance, purchases, and usage.
+        Account balance, purchases, usage, and referrals.
       </p>
     </div>
 
@@ -227,19 +376,117 @@ onMounted(() => {
           Purchase
         </Button>
       </div>
+
+      <div class="mt-6 border-t border-border pt-5">
+        <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+          Referral link
+        </p>
+        <p class="mt-2 text-sm text-muted-foreground">
+          Invite others to sign up. When they purchase Credits, you earn a reward.
+          New users who use your link also get extra Credits.
+        </p>
+        <p v-if="referralLoading" class="mt-3 text-sm text-muted-foreground">
+          Loading…
+        </p>
+        <div v-else-if="referralReady" class="mt-3 flex flex-col gap-3">
+          <div class="flex flex-wrap items-center gap-2">
+            <div
+              class="flex min-w-0 flex-1 items-stretch overflow-hidden rounded-md border border-border bg-background"
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                class="h-auto shrink-0 rounded-none border-r border-border px-3"
+                :disabled="!referralLink"
+                :aria-label="
+                  referralLinkCopied ? 'Copied' : 'Copy referral link'
+                "
+                @click="copyReferralLink"
+              >
+                <Check v-if="referralLinkCopied" class="size-4" />
+                <Copy v-else class="size-4" />
+              </Button>
+              <Input
+                :model-value="referralLink || '—'"
+                readonly
+                class="h-9 min-w-0 flex-1 rounded-none border-0 bg-transparent font-mono text-xs shadow-none focus-visible:ring-0"
+                :title="referralLink"
+                @focus="($event) => $event.target.select()"
+                @click="($event) => $event.target.select()"
+              />
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              class="gap-1.5"
+              :disabled="resetCodeLoading"
+              @click="resetInviteCodeOpen = true"
+            >
+              <RefreshCw class="size-4" />
+              Reset invite code
+            </Button>
+          </div>
+          <div
+            v-if="referralRulesIntro || referralBonusTierRows.length > 0"
+            class="flex flex-col gap-2"
+          >
+            <p
+              v-if="referralRulesIntro"
+              class="text-xs leading-relaxed text-muted-foreground"
+            >
+              {{ referralRulesIntro }}
+              <button
+                v-if="referralBonusTierRows.length > 0"
+                type="button"
+                class="ml-1 text-xs text-foreground underline underline-offset-2 hover:text-foreground/80"
+                :aria-expanded="referralBonusTiersOpen"
+                @click="referralBonusTiersOpen = !referralBonusTiersOpen"
+              >
+                {{ referralBonusTiersOpen ? 'Hide details' : 'View details' }}
+              </button>
+            </p>
+            <div
+              v-if="referralBonusTiersOpen && referralBonusTierRows.length > 0"
+              class="w-fit overflow-hidden rounded-md border border-border"
+            >
+              <table class="text-left text-xs">
+                <thead class="border-b border-border bg-muted/40 text-muted-foreground">
+                  <tr>
+                    <th class="px-3 py-1.5 font-medium">After purchases</th>
+                    <th class="px-3 py-1.5 font-medium">Extra reward</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="tier in referralBonusTierRows"
+                    :key="tier.minPurchases"
+                    class="border-b border-border last:border-b-0"
+                  >
+                    <td class="px-3 py-1.5 tabular-nums">{{ tier.minPurchases }}</td>
+                    <td class="px-3 py-1.5 tabular-nums">+{{ tier.extraPercent }}%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <Tabs v-model="activeTab" class="flex w-full flex-col gap-4">
       <TabsList variant="line">
         <TabsTrigger value="charges" class="flex-none px-3">Usage</TabsTrigger>
         <TabsTrigger value="purchases" class="flex-none px-3">Purchases</TabsTrigger>
+        <TabsTrigger value="referrals" class="flex-none px-3">Referrals</TabsTrigger>
       </TabsList>
 
       <TabsContent value="purchases" class="mt-0">
         <div class="overflow-x-auto rounded-lg border border-border">
-          <table class="w-full min-w-[640px] text-left text-sm">
+          <table class="w-full min-w-[720px] text-left text-sm">
             <thead class="border-b border-border bg-muted/40 text-muted-foreground">
               <tr>
+                <th class="px-4 py-2.5 font-medium">Type</th>
                 <th class="px-4 py-2.5 font-medium">Credits</th>
                 <th class="px-4 py-2.5 font-medium">Paid</th>
                 <th class="px-4 py-2.5 font-medium">Token</th>
@@ -254,6 +501,9 @@ onMounted(() => {
                 :key="purchase.id"
                 class="border-b border-border last:border-0"
               >
+                <td class="px-4 py-2.5">
+                  {{ purchaseTypeLabel(purchase.type) }}
+                </td>
                 <td class="px-4 py-2.5 tabular-nums">
                   {{ formatPurchaseCredits(purchase.credits) }}
                 </td>
@@ -266,8 +516,12 @@ onMounted(() => {
                     )
                   }}
                 </td>
-                <td class="px-4 py-2.5 uppercase">{{ purchase.token }}</td>
-                <td class="px-4 py-2.5">{{ purchase.network }}</td>
+                <td class="px-4 py-2.5 uppercase">
+                  {{ purchase.token || '—' }}
+                </td>
+                <td class="px-4 py-2.5">
+                  {{ purchase.network || '—' }}
+                </td>
                 <td class="px-4 py-2.5">
                   <a
                     v-if="purchaseTxHref(purchase)"
@@ -296,7 +550,7 @@ onMounted(() => {
             v-else-if="purchasesReady && purchases.length === 0"
             class="px-4 py-10 text-center text-sm text-muted-foreground"
           >
-            No purchases yet.
+            No purchases or bonuses yet.
           </p>
         </div>
         <div
@@ -352,10 +606,7 @@ onMounted(() => {
                 <td class="px-4 py-2.5 tabular-nums">
                   {{ formatChargeCredits(charge.credits) }}
                 </td>
-                <td
-                  class="px-4 py-2.5 max-w-[180px] truncate"
-                  :title="charge.project_name || undefined"
-                >
+                <td class="px-4 py-2.5 max-w-[180px] truncate">
                   {{ charge.project_name || '—' }}
                 </td>
                 <td class="px-4 py-2.5 max-w-[260px]">
@@ -363,6 +614,7 @@ onMounted(() => {
                     :model="charge.model"
                     :quantization-config="charge.quantization_config"
                     :components="charge.components"
+                    :show-titles="false"
                   />
                 </td>
                 <td class="px-4 py-2.5 tabular-nums">
@@ -434,8 +686,92 @@ onMounted(() => {
           </div>
         </div>
       </TabsContent>
+
+      <TabsContent value="referrals" class="mt-0">
+        <div class="overflow-x-auto rounded-lg border border-border">
+          <table class="w-full min-w-[720px] text-left text-sm">
+            <thead class="border-b border-border bg-muted/40 text-muted-foreground">
+              <tr>
+                <th class="px-4 py-2.5 font-medium">Time</th>
+                <th class="px-4 py-2.5 font-medium">Invitee</th>
+                <th class="px-4 py-2.5 font-medium">Credits earned</th>
+                <th class="px-4 py-2.5 font-medium">Extra bonus</th>
+                <th class="px-4 py-2.5 font-medium">Kind</th>
+              </tr>
+            </thead>
+            <tbody v-if="!rewardsLoading && rewards.length > 0">
+              <tr
+                v-for="reward in rewards"
+                :key="reward.id"
+                class="border-b border-border last:border-0"
+              >
+                <td class="px-4 py-2.5 whitespace-nowrap">
+                  {{ formatRecordTime(reward.created_at) }}
+                </td>
+                <td class="px-4 py-2.5 font-mono text-xs">
+                  {{ shortAddress(reward.invitee_address) }}
+                </td>
+                <td class="px-4 py-2.5 tabular-nums">
+                  {{ formatRewardCredits(reward.amount) }}
+                </td>
+                <td class="px-4 py-2.5 tabular-nums">
+                  {{ extraBonusDisplay(reward) }}
+                </td>
+                <td class="px-4 py-2.5">
+                  {{ referralRewardKindLabel(reward.kind) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p
+            v-if="rewardsLoading"
+            class="px-4 py-10 text-center text-sm text-muted-foreground"
+          >
+            Loading referrals…
+          </p>
+          <p
+            v-else-if="rewardsReady && rewards.length === 0"
+            class="px-4 py-10 text-center text-sm text-muted-foreground"
+          >
+            No referral rewards yet.
+          </p>
+        </div>
+        <div
+          v-if="rewardsTotal > PAGE_SIZE"
+          class="mt-3 flex items-center justify-between gap-3"
+        >
+          <p class="text-xs text-muted-foreground">
+            Page {{ rewardsPage }} of {{ rewardsPageCount }}
+          </p>
+          <div class="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="rewardsOffset <= 0 || rewardsLoading"
+              @click="prevRewards"
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="
+                rewardsOffset + PAGE_SIZE >= rewardsTotal || rewardsLoading
+              "
+              @click="nextRewards"
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      </TabsContent>
     </Tabs>
 
     <PurchaseDialog v-model:open="purchaseOpen" @purchased="onPurchased" />
+    <ResetInviteCodeDialog
+      v-model:open="resetInviteCodeOpen"
+      :busy="resetCodeLoading"
+      @confirm="confirmResetInviteCode"
+    />
   </div>
 </template>

@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/tooltip'
 import ThemeToggle from '@/components/theme/ThemeToggle.vue'
 import GetSupportDialog from '@/components/support/GetSupportDialog.vue'
+import SignOutDialog from '@/components/layout/SignOutDialog.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useWalletStore } from '@/stores/wallet'
 
@@ -19,6 +20,8 @@ const router = useRouter()
 const auth = useAuthStore()
 const wallet = useWalletStore()
 const supportOpen = ref(false)
+const signOutOpen = ref(false)
+const signOutBusy = ref(false)
 
 const creditsNavActive = computed(() => route.name === 'credits')
 
@@ -26,9 +29,15 @@ const projectsNavActive = computed(
   () => route.name === 'projects' || route.name === 'project-detail',
 )
 
-async function signOut() {
-  await wallet.disconnectWallet()
-  router.push({ name: 'home' })
+async function confirmSignOut() {
+  signOutBusy.value = true
+  try {
+    await wallet.disconnectWallet()
+    signOutOpen.value = false
+    router.push({ name: 'home' })
+  } finally {
+    signOutBusy.value = false
+  }
 }
 </script>
 
@@ -105,7 +114,12 @@ async function signOut() {
             <ThemeToggle />
           </div>
         </div>
-        <Button variant="outline" size="sm" class="w-full justify-start gap-2" @click="signOut">
+        <Button
+          variant="outline"
+          size="sm"
+          class="w-full justify-start gap-2"
+          @click="signOutOpen = true"
+        >
           <LogOut class="size-4" />
           Sign out
         </Button>
@@ -113,6 +127,11 @@ async function signOut() {
     </aside>
 
     <GetSupportDialog v-model:open="supportOpen" />
+    <SignOutDialog
+      v-model:open="signOutOpen"
+      :busy="signOutBusy"
+      @confirm="confirmSignOut"
+    />
 
     <main class="min-h-0 min-w-0 flex-1 overflow-y-auto">
       <div class="w-full px-6 py-8">

@@ -19,6 +19,10 @@ const props = defineProps({
     type: [Object, null],
     default: null,
   },
+  showTitles: {
+    type: Boolean,
+    default: true,
+  },
 })
 
 const quantizationLabel = computed(() =>
@@ -43,7 +47,7 @@ const componentRepos = computed(() =>
     <div class="flex min-w-0 flex-wrap items-center gap-1.5">
       <span
         class="truncate font-medium text-foreground"
-        :title="model"
+        :title="showTitles ? model : undefined"
       >
         {{ model || '—' }}
       </span>
@@ -61,7 +65,7 @@ const componentRepos = computed(() =>
         v-for="repo in componentRepos"
         :key="repo"
         class="truncate text-[11px] leading-4 text-muted-foreground"
-        :title="repo"
+        :title="showTitles ? repo : undefined"
       >
         {{ repo }}
       </div>

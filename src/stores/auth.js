@@ -3,6 +3,7 @@ import { getConnection, signMessage } from '@wagmi/core'
 import { getAddress } from 'viem'
 import { authAPI } from '@/api/v1/auth'
 import { wagmiConfig } from '@/lib/appkit'
+import { clearStoredInviteCode, readStoredInviteCode } from '@/lib/referral'
 import { useWalletStore } from '@/stores/wallet'
 
 function buildLoginMessage(address, timestamp) {
@@ -38,7 +39,7 @@ export const useAuthStore = defineStore('auth', {
       this.sessionExpiresAt = 0
       this.sessionAddress = null
     },
-    async authenticate() {
+    async authenticate({ inviteCode } = {}) {
       if (this._isAuthenticating) {
         return { success: false, reason: 'already_authenticating' }
       }
@@ -59,8 +60,14 @@ export const useAuthStore = defineStore('auth', {
         const message = buildLoginMessage(address, timestamp)
         const signature = await signMessage(wagmiConfig, { message })
 
-        const resp = await authAPI.login({ address, signature, timestamp })
+        const code = String(inviteCode ?? readStoredInviteCode() ?? '').trim()
+        const payload = { address, signature, timestamp }
+        if (code) {
+          payload.invite_code = code
+        }
+        const resp = await authAPI.login(payload)
         this.setSession(resp.token, resp.expires_at, address)
+        clearStoredInviteCode()
 
         return { success: true, address }
       } catch (e) {
