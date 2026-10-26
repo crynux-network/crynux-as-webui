@@ -18,6 +18,8 @@ import { formatGwei } from '@/lib/llm-billing'
 import { formatCreditsValue, formatRecordTime } from '@/lib/credits-ui'
 import { projectErrorMessage } from '@/lib/project-ui'
 import { requestStatusSecondaryLine } from '@/lib/playground-status-log'
+import { Button } from '@/components/ui/button'
+import GetSupportDialog from '@/components/support/GetSupportDialog.vue'
 import UsageModelCell from '@/components/stats/UsageModelCell.vue'
 import UsageWorkloadCell from '@/components/stats/UsageWorkloadCell.vue'
 
@@ -42,6 +44,7 @@ const props = defineProps({
 const requests = ref([])
 const loading = ref(false)
 const ready = ref(false)
+const supportOpen = ref(false)
 
 const requestRows = computed(() =>
   requests.value.map((request) => ({
@@ -101,7 +104,21 @@ watch(() => props.projectId, loadRequests)
 
 <template>
   <section class="mb-8 rounded-xl border border-border px-5 py-5">
-    <h2 class="mb-4 text-base font-semibold tracking-tight">Recent Requests</h2>
+    <div class="mb-4 flex items-center gap-3">
+      <h2 class="text-base font-semibold tracking-tight whitespace-nowrap">
+        Recent Requests
+      </h2>
+      <Button
+        type="button"
+        variant="link"
+        class="h-auto shrink-0 px-0 text-sm text-muted-foreground"
+        @click="supportOpen = true"
+      >
+        Having trouble?
+      </Button>
+    </div>
+
+    <GetSupportDialog v-model:open="supportOpen" />
 
     <div class="overflow-x-auto rounded-lg border border-border">
       <table class="w-full min-w-[800px] text-left text-sm">
