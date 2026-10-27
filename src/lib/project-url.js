@@ -29,6 +29,10 @@ export function projectRawTaskStatusUrl(endpointToken) {
   return `${projectRawTaskCreateUrl(endpointToken)}/:client_task_id`
 }
 
+export function projectRawTaskAbortUrl(endpointToken) {
+  return `${projectRawTaskStatusUrl(endpointToken)}/abort`
+}
+
 export function projectRawTaskLlmResultUrl(endpointToken) {
   return `${projectRawTaskStatusUrl(endpointToken)}/llm`
 }
@@ -43,6 +47,10 @@ export function projectRawTaskBatchCreateUrl(endpointToken) {
 
 export function projectRawTaskBatchStatusUrl(endpointToken) {
   return `${projectRawTaskBatchCreateUrl(endpointToken)}/status`
+}
+
+export function projectRawTaskBatchAbortUrl(endpointToken) {
+  return `${projectRawTaskBatchCreateUrl(endpointToken)}/abort`
 }
 
 export function projectModelsUrl(endpointToken) {
