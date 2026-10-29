@@ -169,6 +169,34 @@ with open("input.png", "rb") as image_file:
   },
 ]
 
+export const spareQuotaSharing = {
+  title: 'Spare Provider Quota Sharing',
+  intro:
+    'One marketplace for spare provider quota: cheaper calls for API users, and CNX earnings for people who share unused subscription keys.',
+  audiences: [
+    {
+      role: 'For API users',
+      title: 'Lower Prices',
+      body: 'Call OpenAI, Anthropic, Google, and Hugging Face open-source models through the same OpenAI-compatible API, at lower cost.',
+    },
+    {
+      role: 'For key owners',
+      title: 'Earn from Spare Quota',
+      body: 'Upload unused monthly subscription keys from OpenAI, Anthropic, or Google. When others run calls through your keys, you earn CNX instead of letting the quota expire unused.',
+    },
+  ],
+  providers: [
+    { id: 'openai', name: 'OpenAI', note: 'GPT models' },
+    { id: 'anthropic', name: 'Anthropic', note: 'Claude models' },
+    { id: 'google', name: 'Google', note: 'Gemini models' },
+    {
+      id: 'huggingface',
+      name: 'Hugging Face',
+      note: 'Open-source models',
+    },
+  ],
+}
+
 export const integrations = [
   {
     name: 'Langchain',

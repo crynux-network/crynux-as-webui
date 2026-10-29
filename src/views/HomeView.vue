@@ -11,6 +11,7 @@ import HomeHighlights from '@/components/home/HomeHighlights.vue'
 import HomeIntegrations from '@/components/home/HomeIntegrations.vue'
 import HomePricing from '@/components/home/HomePricing.vue'
 import HomeServices from '@/components/home/HomeServices.vue'
+import HomeSpareQuota from '@/components/home/HomeSpareQuota.vue'
 import HomeUseCases from '@/components/home/HomeUseCases.vue'
 import { useWalletConnect } from '@/composables/use-wallet-connect'
 import { useAuthStore } from '@/stores/auth'
@@ -123,6 +124,7 @@ onMounted(() => {
       @primary="openConnectDialog"
     />
     <HomeServices />
+    <HomeSpareQuota />
     <HomePricing />
     <HomeIntegrations />
     <HomeHighlights />
