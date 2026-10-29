@@ -6,6 +6,7 @@ import DashboardLayout from '@/components/layout/DashboardLayout.vue'
 import ProjectListView from '@/views/ProjectListView.vue'
 import ProjectDetailView from '@/views/ProjectDetailView.vue'
 import CreditsView from '@/views/CreditsView.vue'
+import EarnView from '@/views/EarnView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -25,6 +26,12 @@ const router = createRouter({
           path: 'credits',
           name: 'credits',
           component: CreditsView
+        },
+        {
+          path: 'earn',
+          name: 'earn',
+          component: EarnView,
+          meta: { requiresAuth: true },
         },
         {
           path: 'projects',

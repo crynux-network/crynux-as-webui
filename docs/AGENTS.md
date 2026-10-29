@@ -24,6 +24,7 @@ When editing auto-mode controls in `src/views/ProjectDetailView.vue`, layout MUS
 |----------|-------------|
 | [architecture.md](./architecture.md) | Technical architecture: Vue app layers, directory layout, Pinia stores, wallet login via Reown AppKit and Crynux AS JWT, API client, dashboard routing and layout |
 | [project-management.md](./project-management.md) | Project list and detail views: Cost Level, Playground, usage, recent requests, and Cost Level control layouts |
+| [earn.md](./earn.md) | Shared Keys page: Shared API Key lifecycle, Key Owner CNX balances and histories, and personal-sign withdrawal flow |
 | [layout.md](./layout.md) | UI layout and typography: title line wrapping and information layout for lists and cards |
 
 ## Doc Update Requirements

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
-import { Coins, FolderKanban, LogOut, MessageCircle } from 'lucide-vue-next'
+import { Coins, FolderKanban, LogOut, MessageCircle, Wallet } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
@@ -24,6 +24,7 @@ const signOutOpen = ref(false)
 const signOutBusy = ref(false)
 
 const creditsNavActive = computed(() => route.name === 'credits')
+const earnNavActive = computed(() => route.name === 'earn')
 
 const projectsNavActive = computed(
   () => route.name === 'projects' || route.name === 'project-detail',
@@ -85,6 +86,18 @@ async function confirmSignOut() {
         >
           <Coins class="size-4" />
           Credits
+        </RouterLink>
+        <RouterLink
+          :to="{ name: 'earn' }"
+          class="mt-1 flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-sidebar-primary hover:text-sidebar-primary-foreground"
+          :class="
+            earnNavActive
+              ? 'bg-sidebar-primary font-medium text-sidebar-primary-foreground'
+              : ''
+          "
+        >
+          <Wallet class="size-4" />
+          Shared Keys
         </RouterLink>
       </nav>
 

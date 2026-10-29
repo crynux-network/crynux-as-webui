@@ -36,6 +36,21 @@ const emits = defineEmits([
 const delegatedProps = reactiveOmit(props, "class", "size");
 
 const forwarded = useForwardPropsEmits(delegatedProps, emits);
+
+function onPointerDownOutside(event) {
+  event.preventDefault();
+  emits("pointerDownOutside", event);
+}
+
+function onFocusOutside(event) {
+  event.preventDefault();
+  emits("focusOutside", event);
+}
+
+function onInteractOutside(event) {
+  event.preventDefault();
+  emits("interactOutside", event);
+}
 </script>
 
 <template>
@@ -54,6 +69,9 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits);
           props.class,
         )
       "
+      @pointer-down-outside="onPointerDownOutside"
+      @focus-outside="onFocusOutside"
+      @interact-outside="onInteractOutside"
     >
       <slot />
     </AlertDialogContent>

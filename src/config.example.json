@@ -3,6 +3,7 @@
   "discord_url": "https://discord.gg/Ug2AHUbrrm",
   "networks": [
     { "id": 1 },
-    { "id": 8453 }
+    { "id": 8453 },
+    { "id": 4663 }
   ]
 }

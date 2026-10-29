@@ -6,14 +6,14 @@ This document describes the technical architecture of the Crynux AS WebUI fronte
 
 Crynux AS WebUI is a Vue 3 application that interacts with:
 
-1. **Crynux AS API** — backend REST API for wallet login, accounts, projects, Credits, and LLM configuration
+1. **Crynux AS API** — backend REST API for wallet login, accounts, projects, Credits, LLM configuration, Shared API Keys, CNX earnings, and withdrawals
 2. **User wallets** — browser extensions and WalletConnect wallets via Reown AppKit and wagmi
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Vue Components                            │
-│  HomeView │ DashboardLayout │ CreditsView │ ProjectListView │   │
-│  ProjectDetailView │ home/* │ credits/* │ projects/* │ ui/*     │
+│  HomeView │ DashboardLayout │ CreditsView │ EarnView │           │
+│  ProjectListView │ ProjectDetailView │ earn/* │ projects/* │ ui/*│
 │  ConnectWalletDialog │ referral API / helpers                     │
 ├─────────────────────────────────────────────────────────────────┤
 │     Stores (Pinia)      │         Composables                   │
@@ -32,6 +32,7 @@ Crynux AS WebUI is a Vue 3 application that interacts with:
 │  │  - purchase.js Purchase networks and tokens              │   │
 │  │  - projects.js Project CRUD + API key reset              │   │
 │  │  - llm.js      LLM billing_config and pricing_examples   │   │
+│  │  - earn.js     Shared keys, earnings, and withdrawals     │   │
 │  └──────────────────────────────────────────────────────────┘   │
 ├─────────────────────────────────────────────────────────────────┤
 │                      External Services                           │
@@ -60,7 +61,8 @@ src/
 │       ├── referral.js        # Referral settings and rewards
 │       ├── purchase.js        # Purchase network and token config
 │       ├── projects.js        # Project CRUD + API key reset
-│       └── llm.js             # LLM billing_config and pricing_examples
+│       ├── llm.js             # LLM billing_config and pricing_examples
+│       └── earn.js            # Shared keys, earnings, and withdrawals
 ├── components/
 │   ├── layout/
 │   │   └── DashboardLayout.vue  # Fixed left sidebar + scrollable main
@@ -68,6 +70,7 @@ src/
 │   ├── theme/
 │   │   └── ThemeToggle.vue    # Light/dark mode toggle
 │   ├── credits/               # Purchase dialog
+│   ├── earn/                  # Shared key and withdrawal dialogs
 │   ├── projects/              # Project dialogs and Playground
 │   └── ui/                    # shadcn-vue generated components
 ├── composables/
@@ -92,6 +95,7 @@ src/
 ├── views/
 │   ├── HomeView.vue           # Public marketing home + Connect
 │   ├── CreditsView.vue        # Balance, referral link, purchases, usage, referrals
+│   ├── EarnView.vue           # Shared API Keys, CNX earnings, withdrawals
 │   ├── ProjectListView.vue    # Dashboard project list + create
 │   └── ProjectDetailView.vue  # Project detail, usage charts, recent requests
 ├── assets/
@@ -139,6 +143,7 @@ Public homepage static assets live under `public/home/` (brand SVG and integrati
 | `/` | `home` | No | `HomeView` |
 | `/dashboard` | — | Yes | redirects to `projects` |
 | `/dashboard/credits` | `credits` | Yes | `CreditsView` |
+| `/dashboard/earn` | `earn` | Yes | `EarnView` |
 | `/dashboard/projects` | `projects` | Yes | `ProjectListView` |
 | `/dashboard/projects/:id` | `project-detail` | Yes | `ProjectDetailView` |
 
@@ -157,6 +162,10 @@ Public homepage static assets live under `public/home/` (brand SVG and integrati
 ### Project management views
 
 Project list, project detail, Cost Level, Playground, usage, and recent-requests behavior MUST follow [project-management.md](./project-management.md).
+
+### Shared Keys view
+
+The dashboard sidebar MUST contain a Shared Keys item. Shared API Key lifecycle, Key Owner balance and history display, bigint amount handling, and the personal-sign withdrawal flow MUST follow [earn.md](./earn.md).
 
 ---
 
@@ -310,6 +319,20 @@ optional router.push(redirect)   e.g. { name: 'projects' }
 | `projects.js` | `resetApiKey` | `POST /projects/:id/api_key/reset` | Yes |
 | `llm.js` | `getBillingConfig` | `GET /llm/billing_config` | Yes |
 | `llm.js` | `getPricingExamples` | `GET /llm/pricing_examples` | Yes |
+| `earn.js` | `getSummary` | `GET /earn` | Yes |
+| `earn.js` | `listProviders` | `GET /earn/providers` | Yes |
+| `earn.js` | `listKeys` | `GET /earn/keys` | Yes |
+| `earn.js` | `createKey` | `POST /earn/keys` | Yes |
+| `earn.js` | `replaceKey` | `POST /earn/keys/:key_id/replace` | Yes |
+| `earn.js` | `enableKey` | `POST /earn/keys/:key_id/enable` | Yes |
+| `earn.js` | `disableKey` | `POST /earn/keys/:key_id/disable` | Yes |
+| `earn.js` | `revokeKey` | `POST /earn/keys/:key_id/revoke` | Yes |
+| `earn.js` | `listCalls` | `GET /earn/calls` | Yes |
+| `earn.js` | `listEvents` | `GET /earn/events` | Yes |
+| `earn.js` | `listWithdrawalNetworks` | `GET /earn/withdrawal_networks` | Yes |
+| `earn.js` | `prepareWithdrawal` | `POST /earn/withdrawals/prepare` | Yes |
+| `earn.js` | `createWithdrawal` | `POST /earn/withdrawals` | Yes |
+| `earn.js` | `listWithdrawals` | `GET /earn/withdrawals` | Yes |
 | `project-private.js` | `listModels` | `GET /api/<endpoint_token>/v1/models` | JWT |
 | `project-private.js` | `listImageModels` | `GET /api/<endpoint_token>/v1/models/image` | JWT |
 | `project-private.js` | `chatCompletions` | `POST /api/<endpoint_token>/v1/chat/completions` | JWT |
@@ -350,6 +373,7 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 - Connect/auth failures return `{ success: false, reason }` from `useWalletConnect` / `authenticate`; `HomeView` shows user-facing messages for known reasons.
 - Project list/detail and project dialogs map `ApiError` to user-facing messages via `lib/project-ui.js` (`projectErrorMessage`) and offer retry where loading failed.
 - Credits balance, purchases, and usage map `ApiError` to user-facing messages via `lib/credits-ui.js` (`creditsErrorMessage`) and offer retry where loading failed.
+- Shared Keys API and load failures MUST follow [earn.md](./earn.md): log redacted structured context and show a `vue-sonner` toast that tells the user to try again later, without inline failure text or a Retry button.
 - Transient success and failure feedback (for example saving cost level) MUST use toast notifications via `vue-sonner` (`Toaster` in `App.vue`) instead of inline page text.
 - Unexpected API 500/unknown errors are logged via handlers registered in `main.js`.
 - Do not silently swallow errors. User-impacting failures MUST surface clear feedback; otherwise log structured context and propagate.
@@ -367,6 +391,7 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `lib/token-ratio.js` | Legacy homepage-only helper; not used by project Cost Level |
 | `lib/llm-billing.js` | Cost Level Gwei helpers and Credits/execution-time example math |
 | `api/v1/llm.js` | `billing_config` and `pricing_examples` clients |
+| `api/v1/earn.js` | Shared API Key, earnings, and withdrawal clients |
 | `stores/wallet.js` | Wallet address sync and disconnect |
 | `stores/auth.js` | JWT session and `authenticate()` |
 | `composables/use-wallet-connect.js` | Connect + login + redirect |
@@ -386,6 +411,8 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `content/home.js` | Homepage copy, links, and code samples |
 | `components/theme/ThemeToggle.vue` | Light/dark mode toggle |
 | `views/CreditsView.vue` | Balance, referral link, purchases, usage, and referrals history |
+| `views/EarnView.vue` | Shared API Keys, CNX earnings, call history, and withdrawals |
+| `components/earn/*` | Shared API Key and withdrawal dialogs |
 | `components/home/ConnectWalletDialog.vue` | Pre-AppKit invite code dialog |
 | `api/v1/referral.js` | Referral settings and rewards API |
 | `lib/referral.js` | Invite code storage and referral display helpers |
