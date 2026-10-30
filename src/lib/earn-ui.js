@@ -58,6 +58,47 @@ export function providerDisplayName(providers, id) {
   return match?.display_name || id || '—'
 }
 
+export function formatTokenCount(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < 0) return '0'
+  return Math.trunc(n).toLocaleString('en-US')
+}
+
+export function formatKeyTokenUsage(used, max) {
+  const usedText = formatTokenCount(used)
+  if (max == null) return `${usedText} / —`
+  return `${usedText} / ${formatTokenCount(max)}`
+}
+
+export function isKeyTokenLimitExhausted(key) {
+  if (!key) return false
+  const inputHit =
+    key.max_input_tokens != null &&
+    Number(key.used_input_tokens) >= Number(key.max_input_tokens)
+  const outputHit =
+    key.max_output_tokens != null &&
+    Number(key.used_output_tokens) >= Number(key.max_output_tokens)
+  return inputHit || outputHit
+}
+
+export function isKeyInCooldown(key) {
+  if (!key?.cooldown_until) return false
+  const until = new Date(key.cooldown_until).getTime()
+  return Number.isFinite(until) && until > Date.now()
+}
+
+// disabled > cooldown > limit > enabled
+export function keyStatusKind(key) {
+  if (!key?.owner_enabled) return 'disabled'
+  if (isKeyInCooldown(key)) return 'cooldown'
+  if (isKeyTokenLimitExhausted(key)) return 'limit'
+  return 'enabled'
+}
+
+export function isKeyUnavailable(key) {
+  return keyStatusKind(key) !== 'enabled'
+}
+
 export function isUserRejectedError(error) {
   const code = error?.code ?? error?.cause?.code ?? error?.cause?.cause?.code
   if (code === 4001 || code === 'ACTION_REJECTED' || code === '4001') return true

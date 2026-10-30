@@ -32,9 +32,12 @@ Each list item MUST show:
 * Provider display name;
 * masked suffix;
 * owner enabled or disabled state;
-* Enable or Disable, and Delete actions.
+* current usage for input and output tokens with their max limits;
+* Enable or Disable, Limit, and Delete actions.
 
-Owner state and system health MUST be displayed separately when both are present. `owner_enabled=false` means the Key Owner disabled the key. A health status other than `usable` means AS has restricted the key. The UI MUST NOT imply that Enable clears an authentication failure, quota block, or cooldown.
+Usage MUST show `used_input_tokens / max_input_tokens` and `used_output_tokens / max_output_tokens`. When a max is null, that side MUST show an unlimited marker such as `—` instead of a max number. When the key is unavailable (disabled, in cooldown, or token-limit exhausted), the Provider, Key, and Usage displays MUST use muted secondary styling.
+
+Key status MUST use distinct icons with this priority: disabled, cooldown, token-limit exhausted, then enabled. `owner_enabled=false` uses the disabled icon. An enabled key with an active `cooldown_until` uses the cooldown icon. An enabled key outside cooldown whose set token limit is exhausted uses the limit-reached icon. Each status icon MUST show a tooltip that explains the current state in plain text. A cooldown tooltip MUST include the cooldown end time from `cooldown_until`, formatted in the user's locale. The UI MUST NOT imply that Enable clears an authentication failure, quota block, cooldown, or token-limit exhaustion.
 
 The WebUI MUST NOT expose a per-key model selector or concurrency control. Every key can execute every configured model of its Provider, and concurrency is global backend configuration.
 
@@ -59,7 +62,21 @@ The Disable confirmation MUST state that no new tasks will be assigned to the ke
 
 Delete MUST require confirmation and call `DELETE /v1/earn/keys/:key_id`. The dialog MUST state that the key secret will be removed and that usage history will be kept. A deleted key MUST be omitted from the list.
 
-Add, Enable, Disable, and Delete dialogs MUST NOT close on outside click while submission is pending.
+### Limit
+
+The Limit action MUST open a dialog for the selected key. The dialog MUST show:
+
+* current used input and output token counts;
+* editable max input tokens;
+* editable max output tokens;
+* a Save action;
+* a Reset usage action.
+
+Empty max fields MUST mean unlimited and MUST be sent as `null`. Positive integers MUST be sent as numbers. Zero and negative values MUST fail inline validation. Save MUST call `POST /v1/earn/keys/:key_id/limits` with both `max_input_tokens` and `max_output_tokens`. Reset usage MUST close the Limit dialog first, then open the same confirmation dialog style used for Enable, Disable, Delete, and Sign out. After confirmation it MUST clear both used counters through `POST /v1/earn/keys/:key_id/usage/reset` and MUST NOT change the stored max values.
+
+After a successful Save or Reset, the keys list MUST reload.
+
+Add, Enable, Disable, Delete, Reset, and Limit Save dialogs MUST NOT close on outside click while submission is pending.
 
 ## History
 
@@ -106,7 +123,7 @@ The WebUI MUST show a pending withdrawal until AS receives a Wallet callback. It
 
 Authenticated Shared Keys calls MUST use `src/api/v1/v1.js` through a domain module at `src/api/v1/earn.js`. Secret-bearing requests MUST use the same module and MUST never be logged.
 
-The module MUST expose summary, provider list, key lifecycle, call history, withdrawal network list, withdrawal prepare, withdrawal create, and withdrawal history methods matching the backend paths in this document.
+The module MUST expose summary, provider list, key lifecycle, key token limits, key usage reset, call history, withdrawal network list, withdrawal prepare, withdrawal create, and withdrawal history methods matching the backend paths in this document.
 
 ## Error Handling
 

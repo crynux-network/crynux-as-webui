@@ -327,7 +327,7 @@ const priorityDirty = computed(() => {
       ? null
       : Number(savedAutoMaxCreditsPerTask.value)
   if (savedMax == null) {
-    return costLevelMode.value === 'auto'
+    return true
   }
   return Number(autoMaxCreditsPerTask.value) !== savedMax
 })
@@ -423,9 +423,9 @@ const providerMinCreditsMarkerPercent = computed(() => {
   return priorityToLogPercent(min, axisMin, axisMax)
 })
 
-const providerAvailable = computed(() =>
+const staticProviderAvailable = computed(() =>
   isProviderAvailableForCostLevel({
-    mode: costLevelMode.value,
+    mode: 'static',
     priorityGwei: priorityGwei.value,
     autoMaxCreditsPerTask: autoMaxCreditsPerTask.value,
     providerMinPriorityGwei: providerMinPriorityGwei.value,
@@ -433,21 +433,38 @@ const providerAvailable = computed(() =>
   }),
 )
 
-const providerAvailabilityHint = computed(() => {
-  if (providerAvailable.value) {
-    if (isAutoMode.value) {
-      return 'Provider models such as OpenAI, Google, and Anthropic are available at this Max Credits.'
-    }
+const maxCreditsProviderAvailable = computed(() =>
+  isProviderAvailableForCostLevel({
+    mode: 'auto',
+    priorityGwei: priorityGwei.value,
+    autoMaxCreditsPerTask: autoMaxCreditsPerTask.value,
+    providerMinPriorityGwei: providerMinPriorityGwei.value,
+    providerMinCredits: providerMinCredits.value,
+  }),
+)
+
+const staticProviderAvailabilityHint = computed(() => {
+  if (staticProviderAvailable.value) {
     return 'Provider models such as OpenAI, Google, and Anthropic are available at this Cost Level.'
-  }
-  if (isAutoMode.value) {
-    return 'Open source models are available. Requests to Provider models such as OpenAI, Google, and Anthropic will be rejected. Raise Max Credits to Provider min or higher.'
   }
   return 'Open source models are available. Requests to Provider models such as OpenAI, Google, and Anthropic will be rejected. Raise Cost Level to Provider min or higher.'
 })
 
-const providerAvailabilityClass = computed(() =>
-  providerAvailable.value
+const maxCreditsProviderAvailabilityHint = computed(() => {
+  if (maxCreditsProviderAvailable.value) {
+    return 'Provider models such as OpenAI, Google, and Anthropic are available at this Max Credits.'
+  }
+  return 'Open source models are available. Requests to Provider models such as OpenAI, Google, and Anthropic will be rejected. Raise Max Credits to Provider min or higher.'
+})
+
+const staticProviderAvailabilityClass = computed(() =>
+  staticProviderAvailable.value
+    ? 'text-emerald-700 dark:text-emerald-400'
+    : 'text-amber-700 dark:text-amber-400',
+)
+
+const maxCreditsProviderAvailabilityClass = computed(() =>
+  maxCreditsProviderAvailable.value
     ? 'text-emerald-700 dark:text-emerald-400'
     : 'text-amber-700 dark:text-amber-400',
 )
@@ -493,7 +510,7 @@ watch(
 watch(
   () => autoMaxCreditsSlider.value?.[0],
   (raw) => {
-    if (syncingAutoControls || !project.value || !isAutoMode.value) return
+    if (syncingAutoControls || !project.value) return
     const percent = Number(raw) / SLIDER_SCALE
     const { axisMin, axisMax } = creditsAxis.value
     const next = clampCredits(
@@ -876,8 +893,8 @@ function onSelectCostLevelMode(mode) {
   if (mode !== 'static' && mode !== 'auto') return
   if (mode === costLevelMode.value) return
   costLevelMode.value = mode
+  ensureAutoMaxCreditsInitialized()
   if (mode === 'auto') {
-    ensureAutoMaxCreditsInitialized()
     applyAutoPositionLocal(autoQueuePosition.value)
   } else {
     applyPriorityLocal(priorityGwei.value)
@@ -1261,6 +1278,9 @@ onUnmounted(() => {
                 <span class="text-2xl font-semibold text-primary">
                   {{ formatGwei(priorityGwei) }}
                 </span>
+                <span class="text-base font-medium text-muted-foreground">
+                  / {{ formatCredits(autoMaxCreditsPerTask) }}
+                </span>
               </template>
             </span>
           </span>
@@ -1322,105 +1342,107 @@ onUnmounted(() => {
             </button>
           </div>
 
-          <div
-            v-if="!isAutoMode"
-            class="mb-20 space-y-4"
-          >
-            <div
-              class="grid w-full min-w-0 grid-cols-[9rem_auto_minmax(0,1fr)_auto] gap-x-2.5 pr-10 sm:pr-14"
-            >
-              <div
-                class="flex h-20 w-full items-center justify-center self-center rounded-lg border border-input bg-background focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-3"
-              >
-                <Input
-                  v-model="priorityInput"
-                  inputmode="numeric"
-                  autocomplete="off"
-                  aria-label="Cost level"
-                  class="h-auto w-full border-0 bg-transparent py-0 text-center font-mono text-2xl font-semibold leading-none text-primary tabular-nums shadow-none focus-visible:border-transparent focus-visible:ring-0 md:text-2xl"
-                  @input="onPriorityInput"
-                  @blur="onPriorityInputBlur"
-                />
+          <div class="mb-20 space-y-10">
+            <template v-if="!isAutoMode">
+              <div class="space-y-4">
+                <div
+                  class="grid w-full min-w-0 grid-cols-[9rem_auto_minmax(0,1fr)_auto] gap-x-2.5 pr-10 sm:pr-14"
+                >
+                  <div
+                    class="flex h-20 w-full items-center justify-center self-center rounded-lg border border-input bg-background focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-3"
+                  >
+                    <Input
+                      v-model="priorityInput"
+                      inputmode="numeric"
+                      autocomplete="off"
+                      aria-label="Cost level"
+                      class="h-auto w-full border-0 bg-transparent py-0 text-center font-mono text-2xl font-semibold leading-none text-primary tabular-nums shadow-none focus-visible:border-transparent focus-visible:ring-0 md:text-2xl"
+                      @input="onPriorityInput"
+                      @blur="onPriorityInputBlur"
+                    />
+                  </div>
+                  <span
+                    class="flex h-8 items-center self-center text-xs text-muted-foreground"
+                  >
+                    Cheaper
+                  </span>
+                  <div class="flex h-8 items-center self-center">
+                    <Slider
+                      v-model="sliderPercent"
+                      :min="0"
+                      :max="SLIDER_MAX"
+                      :step="1"
+                      class="w-full"
+                    />
+                  </div>
+                  <span
+                    class="flex h-8 items-center self-center text-xs text-muted-foreground"
+                  >
+                    Faster
+                  </span>
+                </div>
+
+                <div
+                  class="rounded-xl border border-border bg-muted/20 py-4 sm:py-5"
+                >
+                  <p
+                    class="mb-5 px-4 text-sm font-semibold text-foreground sm:px-5"
+                  >
+                    Task queue
+                  </p>
+                  <div
+                    class="grid w-full min-w-0 grid-cols-[9rem_auto_minmax(0,1fr)_auto] gap-x-2.5 gap-y-5 pr-10 sm:pr-14"
+                  >
+                    <span
+                      class="col-span-2 flex h-3 items-center self-start whitespace-nowrap pl-4 text-xs text-muted-foreground sm:pl-5"
+                      :class="crynuxQueueRangeBar ? 'mt-[1.375rem]' : null"
+                    >
+                      Open source models
+                    </span>
+                    <CostLevelRangeBar
+                      :bar="crynuxQueueRangeBar"
+                      min-label="Current queue min"
+                      max-label="Current queue max"
+                      empty-label="Queue empty"
+                    />
+                    <span />
+                    <span
+                      class="col-span-2 flex h-3 items-center self-start whitespace-nowrap pl-4 text-xs text-muted-foreground sm:pl-5"
+                      :class="providerQueueRangeBar ? 'mt-[1.375rem]' : null"
+                    >
+                      Provider models
+                    </span>
+                    <CostLevelRangeBar
+                      :bar="providerQueueRangeBar"
+                      min-label="Provider queue min"
+                      max-label="Provider queue max"
+                      empty-label="Queue empty"
+                      :marker-percent="providerMinMarkerPercent"
+                      :marker-label="
+                        providerMinMarkerPercent != null ? 'Provider min' : ''
+                      "
+                      :title="
+                        providerMinMarkerPercent != null
+                          ? `Provider min Cost Level ${formatGwei(providerMinPriorityGwei)}`
+                          : undefined
+                      "
+                    />
+                    <span />
+                  </div>
+                  <p
+                    class="mt-5 px-4 text-xs leading-relaxed sm:px-5"
+                    :class="staticProviderAvailabilityClass"
+                  >
+                    {{ staticProviderAvailabilityHint }}
+                  </p>
+                </div>
               </div>
-              <span
-                class="flex h-8 items-center self-center text-xs text-muted-foreground"
-              >
-                Cheaper
-              </span>
-              <div class="flex h-8 items-center self-center">
-                <Slider
-                  v-model="sliderPercent"
-                  :min="0"
-                  :max="SLIDER_MAX"
-                  :step="1"
-                  class="w-full"
-                />
-              </div>
-              <span
-                class="flex h-8 items-center self-center text-xs text-muted-foreground"
-              >
-                Faster
-              </span>
-            </div>
+            </template>
 
             <div
-              class="rounded-xl border border-border bg-muted/20 py-4 sm:py-5"
+              v-else
+              class="rounded-xl border border-border bg-muted/20 p-4 sm:p-5"
             >
-              <p
-                class="mb-5 px-4 text-sm font-semibold text-foreground sm:px-5"
-              >
-                Task queue
-              </p>
-              <div
-                class="grid w-full min-w-0 grid-cols-[9rem_auto_minmax(0,1fr)_auto] gap-x-2.5 gap-y-5 pr-10 sm:pr-14"
-              >
-                <span
-                  class="col-span-2 flex h-3 items-center self-start whitespace-nowrap pl-4 text-xs text-muted-foreground sm:pl-5"
-                  :class="crynuxQueueRangeBar ? 'mt-[1.375rem]' : null"
-                >
-                  Open source models
-                </span>
-                <CostLevelRangeBar
-                  :bar="crynuxQueueRangeBar"
-                  min-label="Current queue min"
-                  max-label="Current queue max"
-                  empty-label="Queue empty"
-                />
-                <span />
-                <span
-                  class="col-span-2 flex h-3 items-center self-start whitespace-nowrap pl-4 text-xs text-muted-foreground sm:pl-5"
-                  :class="providerQueueRangeBar ? 'mt-[1.375rem]' : null"
-                >
-                  Provider models
-                </span>
-                <CostLevelRangeBar
-                  :bar="providerQueueRangeBar"
-                  min-label="Provider queue min"
-                  max-label="Provider queue max"
-                  empty-label="Queue empty"
-                  :marker-percent="providerMinMarkerPercent"
-                  :marker-label="
-                    providerMinMarkerPercent != null ? 'Provider min' : ''
-                  "
-                  :title="
-                    providerMinMarkerPercent != null
-                      ? `Provider min Cost Level ${formatGwei(providerMinPriorityGwei)}`
-                      : undefined
-                  "
-                />
-                <span />
-              </div>
-              <p
-                class="mt-5 px-4 text-xs leading-relaxed sm:px-5"
-                :class="providerAvailabilityClass"
-              >
-                {{ providerAvailabilityHint }}
-              </p>
-            </div>
-          </div>
-
-          <div v-else class="mb-20 space-y-10">
-            <div class="rounded-xl border border-border bg-muted/20 p-4 sm:p-5">
               <div class="mb-4">
                 <p class="text-sm font-semibold text-foreground">
                   Queue position
@@ -1518,11 +1540,20 @@ onUnmounted(() => {
                   Max Credits per task
                 </p>
                 <p class="mt-1 text-xs text-muted-foreground">
-                  Upper Credits cap for each Auto request. The system stays
-                  within this budget while trying to reach the chosen queue
-                  position. Requests are rejected when Max Credits cannot cover
-                  the Provider minimum of
-                  {{ formatCredits(providerMinCredits || 0) }} Credits.
+                  <template v-if="isAutoMode">
+                    Upper Credits cap for each Auto request. The system stays
+                    within this budget while trying to reach the chosen queue
+                    position. Requests are rejected when Max Credits cannot
+                    cover the Provider minimum of
+                    {{ formatCredits(providerMinCredits || 0) }} Credits.
+                  </template>
+                  <template v-else>
+                    Upper Credits cap for each request. Estimated Credits above
+                    this budget are rejected without changing Cost Level.
+                    Requests are rejected when Max Credits cannot cover the
+                    Provider minimum of
+                    {{ formatCredits(providerMinCredits || 0) }} Credits.
+                  </template>
                 </p>
               </div>
               <div class="flex items-center gap-x-3">
@@ -1586,9 +1617,9 @@ onUnmounted(() => {
               </div>
               <p
                 class="mt-5 text-xs leading-relaxed"
-                :class="providerAvailabilityClass"
+                :class="maxCreditsProviderAvailabilityClass"
               >
-                {{ providerAvailabilityHint }}
+                {{ maxCreditsProviderAvailabilityHint }}
               </p>
             </div>
           </div>

@@ -30,6 +30,14 @@ class EarnAPI extends BaseAPI {
     return v1.delete(`/earn/keys/${keyId}`)
   }
 
+  setKeyLimits(keyId, payload) {
+    return v1.post(`/earn/keys/${keyId}/limits`, payload)
+  }
+
+  resetKeyUsage(keyId) {
+    return v1.post(`/earn/keys/${keyId}/usage/reset`)
+  }
+
   listCalls({ beforeId, limit = 20 } = {}) {
     return v1.get('/earn/calls', {
       params: {

@@ -1,11 +1,18 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { CircleCheck, CircleMinus, Plus } from 'lucide-vue-next'
+import { CircleCheck, CircleMinus, CircleOff, Plus, Timer } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import AddKeyDialog from '@/components/earn/AddKeyDialog.vue'
 import ConfirmActionDialog from '@/components/earn/ConfirmActionDialog.vue'
+import LimitKeyDialog from '@/components/earn/LimitKeyDialog.vue'
 import ProviderIcon from '@/components/earn/ProviderIcon.vue'
 import WithdrawDialog from '@/components/earn/WithdrawDialog.vue'
 import NetworkTag from '@/components/NetworkTag.vue'
@@ -15,10 +22,95 @@ import {
   explorerTxUrl,
   formatCnx,
   formatDurationMs,
+  formatKeyTokenUsage,
   formatRecordTime,
+  isKeyUnavailable,
+  keyStatusKind,
   providerDisplayName,
   shortTxHash,
 } from '@/lib/earn-ui'
+
+// Temporary preview data for Shared Key usage UI. Set to false before shipping.
+const USE_MOCK_SHARED_KEYS = true
+const MOCK_SHARED_API_KEYS = [
+  {
+    id: 'key_mock_unlimited',
+    service_provider: 'openai',
+    masked_suffix: 'u9k2',
+    owner_enabled: true,
+    used_input_tokens: 128450,
+    used_output_tokens: 18420,
+    max_input_tokens: null,
+    max_output_tokens: null,
+    cooldown_until: null,
+  },
+  {
+    id: 'key_mock_under',
+    service_provider: 'anthropic',
+    masked_suffix: 'a3f1',
+    owner_enabled: true,
+    used_input_tokens: 245000,
+    used_output_tokens: 52000,
+    max_input_tokens: 2000000,
+    max_output_tokens: 500000,
+    cooldown_until: null,
+  },
+  {
+    id: 'key_mock_near',
+    service_provider: 'google',
+    masked_suffix: 'g7m4',
+    owner_enabled: true,
+    used_input_tokens: 980000,
+    used_output_tokens: 195000,
+    max_input_tokens: 1000000,
+    max_output_tokens: 200000,
+    cooldown_until: null,
+  },
+  {
+    id: 'key_mock_input_hit',
+    service_provider: 'openai',
+    masked_suffix: 'i0ut',
+    owner_enabled: true,
+    used_input_tokens: 1000000,
+    used_output_tokens: 12000,
+    max_input_tokens: 1000000,
+    max_output_tokens: 200000,
+    cooldown_until: null,
+  },
+  {
+    id: 'key_mock_output_hit',
+    service_provider: 'anthropic',
+    masked_suffix: 'o9ut',
+    owner_enabled: true,
+    used_input_tokens: 80000,
+    used_output_tokens: 250000,
+    max_input_tokens: 2000000,
+    max_output_tokens: 250000,
+    cooldown_until: null,
+  },
+  {
+    id: 'key_mock_cooldown',
+    service_provider: 'openai',
+    masked_suffix: 'c0ld',
+    owner_enabled: true,
+    used_input_tokens: 42000,
+    used_output_tokens: 8000,
+    max_input_tokens: 2000000,
+    max_output_tokens: 500000,
+    cooldown_until: new Date(Date.now() + 45 * 60 * 1000).toISOString(),
+  },
+  {
+    id: 'key_mock_disabled',
+    service_provider: 'google',
+    masked_suffix: 'd1s2',
+    owner_enabled: false,
+    used_input_tokens: 0,
+    used_output_tokens: 0,
+    max_input_tokens: 500000,
+    max_output_tokens: 100000,
+    cooldown_until: null,
+  },
+]
 
 const summary = ref(null)
 const keys = ref([])
@@ -36,6 +128,8 @@ const withdrawalsReady = ref(false)
 const activeTab = ref('calls')
 const withdrawOpen = ref(false)
 const addKeyOpen = ref(false)
+const limitKeyOpen = ref(false)
+const limitKey = ref(null)
 
 const confirmOpen = ref(false)
 const confirmBusy = ref(false)
@@ -49,6 +143,7 @@ const confirmTitle = computed(() => {
   if (confirmAction.value === 'enable') return 'Enable key'
   if (confirmAction.value === 'disable') return 'Disable key'
   if (confirmAction.value === 'delete') return 'Delete key'
+  if (confirmAction.value === 'reset') return 'Reset usage'
   return 'Confirm'
 })
 
@@ -74,6 +169,12 @@ const confirmDescription = computed(() => {
       'The key secret will be removed. Usage history will\u00a0be\u00a0kept.',
     ]
   }
+  if (confirmAction.value === 'reset') {
+    return [
+      `Clear used input and output token counters for ${label}.`,
+      'Token limits will stay the same.',
+    ]
+  }
   return []
 })
 
@@ -81,6 +182,7 @@ const confirmLabel = computed(() => {
   if (confirmAction.value === 'enable') return 'Enable'
   if (confirmAction.value === 'disable') return 'Disable'
   if (confirmAction.value === 'delete') return 'Delete'
+  if (confirmAction.value === 'reset') return 'Reset usage'
   return 'Confirm'
 })
 
@@ -88,6 +190,7 @@ const confirmBusyLabel = computed(() => {
   if (confirmAction.value === 'enable') return 'Enabling…'
   if (confirmAction.value === 'disable') return 'Disabling…'
   if (confirmAction.value === 'delete') return 'Deleting…'
+  if (confirmAction.value === 'reset') return 'Resetting…'
   return 'Working…'
 })
 
@@ -108,6 +211,11 @@ async function loadSummary() {
 }
 
 async function loadKeys() {
+  if (USE_MOCK_SHARED_KEYS) {
+    keys.value = MOCK_SHARED_API_KEYS
+    keysReady.value = true
+    return
+  }
   try {
     keys.value = (await earnAPI.listKeys()) || []
     keysReady.value = true
@@ -120,9 +228,22 @@ async function loadKeys() {
 }
 
 async function loadProviders() {
+  if (USE_MOCK_SHARED_KEYS) {
+    providers.value = [
+      { id: 'openai', display_name: 'OpenAI', configured_model_count: 3 },
+      { id: 'anthropic', display_name: 'Anthropic', configured_model_count: 2 },
+      { id: 'google', display_name: 'Google', configured_model_count: 2 },
+    ]
+  }
   try {
-    providers.value = (await earnAPI.listProviders()) || []
+    const list = (await earnAPI.listProviders()) || []
+    if (list.length) {
+      providers.value = list
+    }
   } catch (e) {
+    if (USE_MOCK_SHARED_KEYS && providers.value.length) {
+      return
+    }
     console.error('Failed to load earn providers', e)
     toast.error(
       earnErrorMessage(e, 'Could not load providers. Please try again later.'),
@@ -189,6 +310,19 @@ function openConfirm(action, key) {
   confirmOpen.value = true
 }
 
+function openLimit(key) {
+  limitKey.value = key
+  limitKeyOpen.value = true
+}
+
+function onKeyLimitsUpdated() {
+  loadKeys()
+}
+
+function onRequestResetUsage(key) {
+  openConfirm('reset', key)
+}
+
 async function onConfirmAction() {
   const action = confirmAction.value
   const key = confirmKey.value
@@ -204,6 +338,17 @@ async function onConfirmAction() {
     } else if (action === 'delete') {
       await earnAPI.deleteKey(key.id)
       await loadKeys()
+    } else if (action === 'reset') {
+      if (USE_MOCK_SHARED_KEYS) {
+        const target = keys.value.find((item) => item.id === key.id)
+        if (target) {
+          target.used_input_tokens = 0
+          target.used_output_tokens = 0
+        }
+      } else {
+        await earnAPI.resetKeyUsage(key.id)
+        await loadKeys()
+      }
     }
     confirmOpen.value = false
   } catch (e) {
@@ -211,7 +356,9 @@ async function onConfirmAction() {
     toast.error(
       earnErrorMessage(
         e,
-        `Failed to ${action} Shared API Key. Please try again later.`,
+        action === 'reset'
+          ? 'Failed to reset usage. Please try again later.'
+          : `Failed to ${action} Shared API Key. Please try again later.`,
       ),
     )
   } finally {
@@ -333,11 +480,12 @@ onMounted(loadAll)
       </div>
 
       <div class="overflow-x-auto rounded-lg border border-border">
-        <table class="w-full min-w-[560px] text-left text-sm">
+        <table class="w-full min-w-[720px] text-left text-sm">
           <thead class="border-b border-border bg-muted/40 text-muted-foreground">
             <tr>
               <th class="px-4 py-2.5 font-medium">Provider</th>
               <th class="px-4 py-2.5 font-medium">Key</th>
+              <th class="px-4 py-2.5 font-medium">Usage</th>
               <th class="w-0 px-4 py-2.5 text-right font-medium whitespace-nowrap">
                 Actions
               </th>
@@ -353,27 +501,87 @@ onMounted(loadAll)
                 <span
                   class="inline-flex items-center gap-2 whitespace-nowrap"
                   :class="
-                    key.owner_enabled
-                      ? ''
-                      : 'text-muted-foreground'
+                    isKeyUnavailable(key) ? 'text-muted-foreground' : ''
                   "
                 >
-                  <CircleCheck
-                    v-if="key.owner_enabled"
-                    class="size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
-                    aria-label="Enabled"
-                  />
-                  <CircleMinus
-                    v-else
-                    class="size-4 shrink-0"
-                    aria-label="Disabled"
-                  />
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <span class="inline-flex shrink-0">
+                          <CircleMinus
+                            v-if="keyStatusKind(key) === 'disabled'"
+                            class="size-4"
+                            aria-label="Disabled"
+                          />
+                          <Timer
+                            v-else-if="keyStatusKind(key) === 'cooldown'"
+                            class="size-4 text-sky-600 dark:text-sky-400"
+                            aria-label="In cooldown"
+                          />
+                          <CircleOff
+                            v-else-if="keyStatusKind(key) === 'limit'"
+                            class="size-4 text-amber-600 dark:text-amber-400"
+                            aria-label="Token limit reached"
+                          />
+                          <CircleCheck
+                            v-else
+                            class="size-4 text-emerald-600 dark:text-emerald-400"
+                            aria-label="Enabled"
+                          />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <template v-if="keyStatusKind(key) === 'disabled'">
+                          Disabled. This key will not receive new tasks until you
+                          enable it again.
+                        </template>
+                        <template v-else-if="keyStatusKind(key) === 'cooldown'">
+                          In cooldown until
+                          {{ formatRecordTime(key.cooldown_until) }}. AS paused
+                          this key after repeated unavailable responses.
+                        </template>
+                        <template v-else-if="keyStatusKind(key) === 'limit'">
+                          Token limit reached. Reset usage or raise the limit to
+                          make this key available again.
+                        </template>
+                        <template v-else>
+                          Enabled. This key can receive new tasks.
+                        </template>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                   <ProviderIcon :provider-id="key.service_provider" />
                   {{ providerDisplayName(providers, key.service_provider) }}
                 </span>
               </td>
-              <td class="px-4 py-2.5 font-mono whitespace-nowrap">
+              <td
+                class="px-4 py-2.5 font-mono whitespace-nowrap"
+                :class="isKeyUnavailable(key) ? 'text-muted-foreground' : ''"
+              >
                 ···{{ key.masked_suffix }}
+              </td>
+              <td
+                class="px-4 py-2.5 font-mono text-xs whitespace-nowrap"
+                :class="isKeyUnavailable(key) ? 'text-muted-foreground' : ''"
+              >
+                <div>
+                  in
+                  {{
+                    formatKeyTokenUsage(
+                      key.used_input_tokens,
+                      key.max_input_tokens,
+                    )
+                  }}
+                </div>
+                <div class="mt-0.5">
+                  out
+                  {{
+                    formatKeyTokenUsage(
+                      key.used_output_tokens,
+                      key.max_output_tokens,
+                    )
+                  }}
+                </div>
               </td>
               <td class="w-0 px-4 py-2.5 text-right whitespace-nowrap">
                 <div class="inline-flex gap-2">
@@ -391,6 +599,13 @@ onMounted(loadAll)
                     @click="openConfirm('disable', key)"
                   >
                     Disable
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    @click="openLimit(key)"
+                  >
+                    Limit
                   </Button>
                   <Button
                     variant="destructive"
@@ -595,6 +810,12 @@ onMounted(loadAll)
       v-model:open="addKeyOpen"
       :providers="providers"
       @created="onKeyCreated"
+    />
+    <LimitKeyDialog
+      v-model:open="limitKeyOpen"
+      :api-key="limitKey"
+      @updated="onKeyLimitsUpdated"
+      @request-reset="onRequestResetUsage"
     />
     <ConfirmActionDialog
       v-model:open="confirmOpen"

@@ -8,7 +8,8 @@ When editing the project Cost Level panel in `src/views/ProjectDetailView.vue`, 
 
 1. Top row is Cost Level input beside the slider; Task queue panel below spans full card content width; queue bar left/right edges align with the slider track via the shared column grid.
 2. Left numeric box stays tall (`h-20`) with primary flex-centered digits and sits directly left of the slider as one control.
-3. Larger gaps: intro text to mode cards (`mb-10`), mode cards to control row (`mb-20`), control row to example tables (`mb-20`).
+3. Max Credits per task group sits below Task queue with the same controls as Auto; spacing between that block and Max Credits uses `space-y-10`.
+4. Larger gaps: intro text to mode cards (`mb-10`), mode cards to control block (`mb-20`), control block to example tables (`mb-20`).
 
 ### Cost Level auto layout
 
