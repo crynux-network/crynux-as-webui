@@ -30,88 +30,6 @@ import {
   shortTxHash,
 } from '@/lib/earn-ui'
 
-// Temporary preview data for Shared Key usage UI. Set to false before shipping.
-const USE_MOCK_SHARED_KEYS = true
-const MOCK_SHARED_API_KEYS = [
-  {
-    id: 'key_mock_unlimited',
-    service_provider: 'openai',
-    masked_suffix: 'u9k2',
-    owner_enabled: true,
-    used_input_tokens: 128450,
-    used_output_tokens: 18420,
-    max_input_tokens: null,
-    max_output_tokens: null,
-    cooldown_until: null,
-  },
-  {
-    id: 'key_mock_under',
-    service_provider: 'anthropic',
-    masked_suffix: 'a3f1',
-    owner_enabled: true,
-    used_input_tokens: 245000,
-    used_output_tokens: 52000,
-    max_input_tokens: 2000000,
-    max_output_tokens: 500000,
-    cooldown_until: null,
-  },
-  {
-    id: 'key_mock_near',
-    service_provider: 'google',
-    masked_suffix: 'g7m4',
-    owner_enabled: true,
-    used_input_tokens: 980000,
-    used_output_tokens: 195000,
-    max_input_tokens: 1000000,
-    max_output_tokens: 200000,
-    cooldown_until: null,
-  },
-  {
-    id: 'key_mock_input_hit',
-    service_provider: 'openai',
-    masked_suffix: 'i0ut',
-    owner_enabled: true,
-    used_input_tokens: 1000000,
-    used_output_tokens: 12000,
-    max_input_tokens: 1000000,
-    max_output_tokens: 200000,
-    cooldown_until: null,
-  },
-  {
-    id: 'key_mock_output_hit',
-    service_provider: 'anthropic',
-    masked_suffix: 'o9ut',
-    owner_enabled: true,
-    used_input_tokens: 80000,
-    used_output_tokens: 250000,
-    max_input_tokens: 2000000,
-    max_output_tokens: 250000,
-    cooldown_until: null,
-  },
-  {
-    id: 'key_mock_cooldown',
-    service_provider: 'openai',
-    masked_suffix: 'c0ld',
-    owner_enabled: true,
-    used_input_tokens: 42000,
-    used_output_tokens: 8000,
-    max_input_tokens: 2000000,
-    max_output_tokens: 500000,
-    cooldown_until: new Date(Date.now() + 45 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'key_mock_disabled',
-    service_provider: 'google',
-    masked_suffix: 'd1s2',
-    owner_enabled: false,
-    used_input_tokens: 0,
-    used_output_tokens: 0,
-    max_input_tokens: 500000,
-    max_output_tokens: 100000,
-    cooldown_until: null,
-  },
-]
-
 const summary = ref(null)
 const keys = ref([])
 const providers = ref([])
@@ -211,11 +129,6 @@ async function loadSummary() {
 }
 
 async function loadKeys() {
-  if (USE_MOCK_SHARED_KEYS) {
-    keys.value = MOCK_SHARED_API_KEYS
-    keysReady.value = true
-    return
-  }
   try {
     keys.value = (await earnAPI.listKeys()) || []
     keysReady.value = true
@@ -228,22 +141,9 @@ async function loadKeys() {
 }
 
 async function loadProviders() {
-  if (USE_MOCK_SHARED_KEYS) {
-    providers.value = [
-      { id: 'openai', display_name: 'OpenAI', configured_model_count: 3 },
-      { id: 'anthropic', display_name: 'Anthropic', configured_model_count: 2 },
-      { id: 'google', display_name: 'Google', configured_model_count: 2 },
-    ]
-  }
   try {
-    const list = (await earnAPI.listProviders()) || []
-    if (list.length) {
-      providers.value = list
-    }
+    providers.value = (await earnAPI.listProviders()) || []
   } catch (e) {
-    if (USE_MOCK_SHARED_KEYS && providers.value.length) {
-      return
-    }
     console.error('Failed to load earn providers', e)
     toast.error(
       earnErrorMessage(e, 'Could not load providers. Please try again later.'),
@@ -339,16 +239,8 @@ async function onConfirmAction() {
       await earnAPI.deleteKey(key.id)
       await loadKeys()
     } else if (action === 'reset') {
-      if (USE_MOCK_SHARED_KEYS) {
-        const target = keys.value.find((item) => item.id === key.id)
-        if (target) {
-          target.used_input_tokens = 0
-          target.used_output_tokens = 0
-        }
-      } else {
-        await earnAPI.resetKeyUsage(key.id)
-        await loadKeys()
-      }
+      await earnAPI.resetKeyUsage(key.id)
+      await loadKeys()
     }
     confirmOpen.value = false
   } catch (e) {
