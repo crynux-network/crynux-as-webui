@@ -8,6 +8,7 @@ import {
   formatExactNumber,
 } from '@/lib/usage-stats-ui'
 import {
+  formatCredits,
   formatGwei,
   getProjectQueuePosition,
   normalizeAutoQueuePosition,
@@ -52,9 +53,11 @@ const autoQueuePosition = computed(() =>
   normalizeAutoQueuePosition(props.project.auto_queue_position, 50),
 )
 
-const autoMaxDisplay = computed(() =>
-  formatGwei(props.project.auto_max_priority_gwei),
-)
+const autoMaxDisplay = computed(() => {
+  const n = Number(props.project.auto_max_credits_per_task)
+  if (!(n > 0)) return '—'
+  return formatCredits(n)
+})
 
 const costLevelDisplay = computed(() => {
   if (isAutoMode.value) {
@@ -113,9 +116,9 @@ const costLevelDescription = computed(() => {
     const pos = autoQueuePosition.value
     const max = autoMaxDisplay.value
     if (max === '—') {
-      return `Queue position ${pos}% from min to max. Set a max Cost Level to use Auto.`
+      return `Queue position ${pos}% from min to max. Set Max Credits per task to use Auto.`
     }
-    return `Queue position ${pos}% from min to max. Max Cost Level ${max}.`
+    return `Queue position ${pos}% from min to max. Max Credits per task ${max}.`
   }
   const position = queuePosition.value
   if (!position) return null

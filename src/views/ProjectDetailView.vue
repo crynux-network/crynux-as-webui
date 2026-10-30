@@ -27,6 +27,7 @@ import ApiKeyRevealDialog from '@/components/projects/ApiKeyRevealDialog.vue'
 import DeleteProjectDialog from '@/components/projects/DeleteProjectDialog.vue'
 import RenameProjectDialog from '@/components/projects/RenameProjectDialog.vue'
 import ResetApiKeyDialog from '@/components/projects/ResetApiKeyDialog.vue'
+import CostLevelRangeBar from '@/components/projects/CostLevelRangeBar.vue'
 import PricingExampleModelCell from '@/components/projects/PricingExampleModelCell.vue'
 import ProjectPlaygroundSection from '@/components/projects/ProjectPlaygroundSection.vue'
 import ProjectUsageSection from '@/components/stats/ProjectUsageSection.vue'
@@ -55,18 +56,24 @@ import {
 import {
   buildExampleRows,
   buildImageExampleRows,
+  clampCredits,
   clampPriorityGwei,
+  computeCreditsAxis,
   computePriorityAxis,
-  defaultAutoMaxPriorityGwei,
+  defaultAutoMaxCreditsPerTask,
+  formatCredits,
   formatExampleCredits,
   formatGwei,
   formatSeconds,
   formatTokenCount,
+  isProviderAvailableForCostLevel,
   logPercentToPriority,
+  mapQueueRangeBar,
   normalizeAutoQueuePosition,
   AUTO_QUEUE_POSITION_MIN,
   AUTO_QUEUE_POSITION_MAX,
   AUTO_QUEUE_POSITION_BAR_MARGIN,
+  parseCreditsInput,
   parsePriorityInput,
   priorityToLogPercent,
 } from '@/lib/llm-billing'
@@ -95,10 +102,12 @@ const autoQueuePosition = ref(50)
 const savedAutoQueuePosition = ref(50)
 const autoPositionSlider = ref([50])
 const autoPositionInput = ref('50')
-const autoMaxPriorityGwei = ref(1)
-const savedAutoMaxPriorityGwei = ref(null)
-const autoMaxInput = ref('1')
-const autoMaxSliderPercent = ref([0])
+const autoMaxCreditsPerTask = ref(100)
+const savedAutoMaxCreditsPerTask = ref(null)
+const autoMaxCreditsInput = ref('100')
+const autoMaxCreditsSlider = ref([0])
+const defaultAutoMaxCredits = ref(100)
+const CREDITS_HARD_MAX = 10_000
 const minPriorityGwei = ref(1)
 const maxPriorityGwei = ref(1_000_000_000)
 const medianPriorityGwei = ref(null)
@@ -106,6 +115,11 @@ const baseVram = ref(8)
 const creditsPerGwei = ref(1)
 const highestPriorityGwei = ref(null)
 const lowestPriorityGwei = ref(null)
+const providerMinPriorityGwei = ref(null)
+const providerMinCredits = ref(null)
+const providerHighestPriorityGwei = ref(null)
+const providerLowestPriorityGwei = ref(null)
+const providerQueueHasJobs = ref(false)
 const pricingExamples = ref([])
 const pricingPromptTokens = ref(1_000_000)
 const pricingCompletionTokens = ref(1_000_000)
@@ -288,12 +302,12 @@ const apiGuideItems = computed(() => {
 
 const priorityAxis = computed(() =>
   computePriorityAxis({
-    userPriorityGwei:
-      costLevelMode.value === 'auto'
-        ? autoMaxPriorityGwei.value
-        : priorityGwei.value,
+    userPriorityGwei: priorityGwei.value,
     lowestPriorityGwei: lowestPriorityGwei.value,
     highestPriorityGwei: highestPriorityGwei.value,
+    providerLowestPriorityGwei: providerLowestPriorityGwei.value,
+    providerHighestPriorityGwei: providerHighestPriorityGwei.value,
+    providerMinPriorityGwei: providerMinPriorityGwei.value,
     medianPriorityGwei: medianPriorityGwei.value,
     minPriorityGwei: minPriorityGwei.value,
     maxPriorityGwei: maxPriorityGwei.value,
@@ -309,18 +323,23 @@ const priorityDirty = computed(() => {
     return true
   }
   const savedMax =
-    savedAutoMaxPriorityGwei.value == null
+    savedAutoMaxCreditsPerTask.value == null
       ? null
-      : Number(savedAutoMaxPriorityGwei.value)
+      : Number(savedAutoMaxCreditsPerTask.value)
   if (savedMax == null) {
     return costLevelMode.value === 'auto'
   }
-  return Number(autoMaxPriorityGwei.value) !== savedMax
+  return Number(autoMaxCreditsPerTask.value) !== savedMax
 })
 
-const examplePriorityGwei = computed(() =>
-  isAutoMode.value ? autoMaxPriorityGwei.value : priorityGwei.value,
-)
+const examplePriorityGwei = computed(() => {
+  if (!isAutoMode.value) return priorityGwei.value
+  const high = Number(highestPriorityGwei.value)
+  if (high > 0) return Math.round(high)
+  const median = Number(medianPriorityGwei.value)
+  if (median > 0) return Math.round(median)
+  return minPriorityGwei.value
+})
 
 const pricingRows = computed(() =>
   buildExampleRows({
@@ -335,11 +354,7 @@ const pricingRows = computed(() =>
   }),
 )
 
-const creditsTableTitle = computed(() =>
-  isAutoMode.value
-    ? 'Maximum Credits per 1M tokens'
-    : 'Credits per 1M tokens',
-)
+const creditsTableTitle = computed(() => 'Credits per 1M tokens')
 
 const imagePricingRows = computed(() =>
   buildImageExampleRows({
@@ -354,11 +369,7 @@ const imagePricingRows = computed(() =>
   }),
 )
 
-const imageCreditsTableTitle = computed(() =>
-  isAutoMode.value
-    ? 'Maximum Credits per image'
-    : 'Credits per image',
-)
+const imageCreditsTableTitle = computed(() => 'Credits per image')
 
 const imageExampleSizeLabel = computed(
   () => `${imageExampleWidth.value}×${imageExampleHeight.value}`,
@@ -370,29 +381,76 @@ const imageExampleWorkloadNote = computed(() => {
   return `${n} ${unit}`
 })
 
-const queueRangeBar = computed(() => {
-  const low = Number(lowestPriorityGwei.value)
-  const high = Number(highestPriorityGwei.value)
-  if (!(low > 0) || !(high > 0)) return null
+const crynuxQueueRangeBar = computed(() =>
+  mapQueueRangeBar({
+    lowestPriorityGwei: lowestPriorityGwei.value,
+    highestPriorityGwei: highestPriorityGwei.value,
+    axisMin: priorityAxis.value.axisMin,
+    axisMax: priorityAxis.value.axisMax,
+  }),
+)
 
-  const { axisMin, axisMax } = priorityAxis.value
-  const outOfRange =
-    (low < axisMin && high < axisMin) || (low > axisMax && high > axisMax)
-
-  const minPercent = priorityToLogPercent(low, axisMin, axisMax)
-  const maxPercent = priorityToLogPercent(high, axisMin, axisMax)
-  const left = Math.min(minPercent, maxPercent)
-  const right = Math.max(minPercent, maxPercent)
-
-  return {
-    outOfRange,
-    minPercent,
-    maxPercent,
-    blueLeft: left,
-    blueWidth: right - left,
-  }
+const providerQueueRangeBar = computed(() => {
+  if (!providerQueueHasJobs.value) return null
+  return mapQueueRangeBar({
+    lowestPriorityGwei: providerLowestPriorityGwei.value,
+    highestPriorityGwei: providerHighestPriorityGwei.value,
+    axisMin: priorityAxis.value.axisMin,
+    axisMax: priorityAxis.value.axisMax,
+  })
 })
-const showQueueRangeBar = computed(() => queueRangeBar.value != null)
+
+const providerMinMarkerPercent = computed(() => {
+  const min = Number(providerMinPriorityGwei.value)
+  if (!(min > 0)) return null
+  const { axisMin, axisMax } = priorityAxis.value
+  return priorityToLogPercent(min, axisMin, axisMax)
+})
+
+const creditsAxis = computed(() =>
+  computeCreditsAxis({
+    userCredits: autoMaxCreditsPerTask.value,
+    providerMinCredits: providerMinCredits.value,
+    hardMin: 1,
+    hardMax: CREDITS_HARD_MAX,
+  }),
+)
+
+const providerMinCreditsMarkerPercent = computed(() => {
+  const min = Number(providerMinCredits.value)
+  if (!(min > 0)) return null
+  const { axisMin, axisMax } = creditsAxis.value
+  return priorityToLogPercent(min, axisMin, axisMax)
+})
+
+const providerAvailable = computed(() =>
+  isProviderAvailableForCostLevel({
+    mode: costLevelMode.value,
+    priorityGwei: priorityGwei.value,
+    autoMaxCreditsPerTask: autoMaxCreditsPerTask.value,
+    providerMinPriorityGwei: providerMinPriorityGwei.value,
+    providerMinCredits: providerMinCredits.value,
+  }),
+)
+
+const providerAvailabilityHint = computed(() => {
+  if (providerAvailable.value) {
+    if (isAutoMode.value) {
+      return 'Provider models such as OpenAI, Google, and Anthropic are available at this Max Credits.'
+    }
+    return 'Provider models such as OpenAI, Google, and Anthropic are available at this Cost Level.'
+  }
+  if (isAutoMode.value) {
+    return 'Open source models are available. Requests to Provider models such as OpenAI, Google, and Anthropic will be rejected. Raise Max Credits to Provider min or higher.'
+  }
+  return 'Open source models are available. Requests to Provider models such as OpenAI, Google, and Anthropic will be rejected. Raise Cost Level to Provider min or higher.'
+})
+
+const providerAvailabilityClass = computed(() =>
+  providerAvailable.value
+    ? 'text-emerald-700 dark:text-emerald-400'
+    : 'text-amber-700 dark:text-amber-400',
+)
 
 watch(projectId, async () => {
   clearPrioritySaveTimer()
@@ -433,18 +491,17 @@ watch(
 )
 
 watch(
-  () => autoMaxSliderPercent.value?.[0],
+  () => autoMaxCreditsSlider.value?.[0],
   (raw) => {
     if (syncingAutoControls || !project.value || !isAutoMode.value) return
     const percent = Number(raw) / SLIDER_SCALE
-    const { axisMin, axisMax } = priorityAxis.value
-    const next = clampPriorityGwei(
+    const { axisMin, axisMax } = creditsAxis.value
+    const next = clampCredits(
       logPercentToPriority(percent, axisMin, axisMax),
-      minPriorityGwei.value,
-      maxPriorityGwei.value,
+      defaultAutoMaxCredits.value,
     )
-    if (next === Number(autoMaxPriorityGwei.value)) return
-    applyAutoMaxLocal(next, { syncInput: true, remapSlider: true })
+    if (next === Number(autoMaxCreditsPerTask.value)) return
+    applyAutoMaxCreditsLocal(next, { syncInput: true, remapSlider: true })
     schedulePrioritySave()
   },
 )
@@ -511,36 +568,43 @@ function applyAutoPositionLocal(value, { syncInput = true, remapSlider = true } 
   syncingAutoControls = false
 }
 
-function applyAutoMaxLocal(value, { syncInput = true, remapSlider = true } = {}) {
-  const next = clampPriorityGwei(
-    value,
-    minPriorityGwei.value,
-    maxPriorityGwei.value,
+function sliderUnitsFromCredits(value) {
+  const { axisMin, axisMax } = creditsAxis.value
+  return Math.round(
+    priorityToLogPercent(value, axisMin, axisMax) * SLIDER_SCALE,
+  )
+}
+
+function applyAutoMaxCreditsLocal(
+  value,
+  { syncInput = true, remapSlider = true } = {},
+) {
+  const next = Math.min(
+    CREDITS_HARD_MAX,
+    clampCredits(value, defaultAutoMaxCredits.value),
   )
   syncingAutoControls = true
-  autoMaxPriorityGwei.value = next
+  autoMaxCreditsPerTask.value = next
   if (syncInput) {
-    autoMaxInput.value = String(next)
+    autoMaxCreditsInput.value = String(next)
   }
   if (remapSlider) {
-    autoMaxSliderPercent.value = [sliderUnitsFromPriority(next)]
+    autoMaxCreditsSlider.value = [sliderUnitsFromCredits(next)]
   }
   syncingAutoControls = false
 }
 
-function ensureAutoMaxInitialized() {
+function ensureAutoMaxCreditsInitialized() {
   if (
-    savedAutoMaxPriorityGwei.value != null &&
-    Number(savedAutoMaxPriorityGwei.value) > 0
+    savedAutoMaxCreditsPerTask.value != null &&
+    Number(savedAutoMaxCreditsPerTask.value) > 0
   ) {
-    applyAutoMaxLocal(savedAutoMaxPriorityGwei.value)
+    applyAutoMaxCreditsLocal(savedAutoMaxCreditsPerTask.value)
     return
   }
-  const next = defaultAutoMaxPriorityGwei({
-    highestPriorityGwei: highestPriorityGwei.value,
-    minPriorityGwei: minPriorityGwei.value,
-  })
-  applyAutoMaxLocal(next)
+  applyAutoMaxCreditsLocal(
+    defaultAutoMaxCreditsPerTask(defaultAutoMaxCredits.value),
+  )
 }
 
 async function loadBillingConfig() {
@@ -575,6 +639,33 @@ async function loadBillingConfig() {
       highestPriorityGwei.value = null
       lowestPriorityGwei.value = null
     }
+    const nextDefaultAutoMax = Number(data?.default_auto_max_credits_per_task)
+    if (Number.isFinite(nextDefaultAutoMax) && nextDefaultAutoMax > 0) {
+      defaultAutoMaxCredits.value = Math.trunc(nextDefaultAutoMax)
+    }
+    const nextProviderMinPriority = Number(data?.provider_min_priority_gwei)
+    providerMinPriorityGwei.value =
+      Number.isFinite(nextProviderMinPriority) && nextProviderMinPriority > 0
+        ? String(data.provider_min_priority_gwei)
+        : null
+    const nextProviderMinCredits = Number(data?.provider_min_credits)
+    providerMinCredits.value =
+      Number.isFinite(nextProviderMinCredits) && nextProviderMinCredits > 0
+        ? String(data.provider_min_credits)
+        : null
+    providerQueueHasJobs.value = Boolean(data?.provider_queue_has_jobs)
+    if (
+      providerQueueHasJobs.value &&
+      data?.provider_highest_priority_gwei != null &&
+      data?.provider_lowest_priority_gwei != null
+    ) {
+      providerHighestPriorityGwei.value = String(data.provider_highest_priority_gwei)
+      providerLowestPriorityGwei.value = String(data.provider_lowest_priority_gwei)
+    } else {
+      providerHighestPriorityGwei.value = null
+      providerLowestPriorityGwei.value = null
+      providerQueueHasJobs.value = false
+    }
     if (project.value) {
       const alreadySuppressed = suppressCostLevelAutosave
       if (!alreadySuppressed) {
@@ -582,7 +673,7 @@ async function loadBillingConfig() {
       }
       try {
         applyPriorityLocal(priorityGwei.value)
-        applyAutoMaxLocal(autoMaxPriorityGwei.value)
+        applyAutoMaxCreditsLocal(autoMaxCreditsPerTask.value)
       } finally {
         if (!alreadySuppressed) {
           await endCostLevelHydration()
@@ -691,18 +782,14 @@ function applyProject(data) {
   savedAutoQueuePosition.value = position
   applyAutoPositionLocal(position)
 
-  const rawMax = Number(data.auto_max_priority_gwei)
+  const rawMax = Number(data.auto_max_credits_per_task)
   if (Number.isFinite(rawMax) && rawMax > 0) {
-    const maxValue = clampPriorityGwei(
-      rawMax,
-      minPriorityGwei.value,
-      maxPriorityGwei.value,
-    )
-    savedAutoMaxPriorityGwei.value = maxValue
-    applyAutoMaxLocal(maxValue)
+    const maxValue = clampCredits(rawMax, defaultAutoMaxCredits.value)
+    savedAutoMaxCreditsPerTask.value = maxValue
+    applyAutoMaxCreditsLocal(maxValue)
   } else {
-    savedAutoMaxPriorityGwei.value = null
-    ensureAutoMaxInitialized()
+    savedAutoMaxCreditsPerTask.value = null
+    ensureAutoMaxCreditsInitialized()
   }
 }
 
@@ -768,20 +855,20 @@ function onAutoPositionInputBlur() {
   schedulePrioritySave()
 }
 
-function onAutoMaxInput() {
-  const parsed = parsePriorityInput(autoMaxInput.value)
+function onAutoMaxCreditsInput() {
+  const parsed = parseCreditsInput(autoMaxCreditsInput.value)
   if (parsed == null) return
-  applyAutoMaxLocal(parsed, { syncInput: false, remapSlider: true })
+  applyAutoMaxCreditsLocal(parsed, { syncInput: false, remapSlider: true })
   schedulePrioritySave()
 }
 
-function onAutoMaxInputBlur() {
-  const parsed = parsePriorityInput(autoMaxInput.value)
+function onAutoMaxCreditsInputBlur() {
+  const parsed = parseCreditsInput(autoMaxCreditsInput.value)
   if (parsed == null) {
-    autoMaxInput.value = String(autoMaxPriorityGwei.value)
+    autoMaxCreditsInput.value = String(autoMaxCreditsPerTask.value)
     return
   }
-  applyAutoMaxLocal(parsed)
+  applyAutoMaxCreditsLocal(parsed)
   schedulePrioritySave()
 }
 
@@ -790,7 +877,7 @@ function onSelectCostLevelMode(mode) {
   if (mode === costLevelMode.value) return
   costLevelMode.value = mode
   if (mode === 'auto') {
-    ensureAutoMaxInitialized()
+    ensureAutoMaxCreditsInitialized()
     applyAutoPositionLocal(autoQueuePosition.value)
   } else {
     applyPriorityLocal(priorityGwei.value)
@@ -809,12 +896,12 @@ async function saveCostLevel() {
     cost_level_mode: costLevelMode.value,
     priority_gwei: String(priorityGwei.value),
     auto_queue_position: Number(autoQueuePosition.value),
-    auto_max_priority_gwei: String(autoMaxPriorityGwei.value),
+    auto_max_credits_per_task: String(autoMaxCreditsPerTask.value),
   }
   const modeToSave = costLevelMode.value
   const priorityToSave = priorityGwei.value
   const positionToSave = autoQueuePosition.value
-  const maxToSave = autoMaxPriorityGwei.value
+  const maxToSave = autoMaxCreditsPerTask.value
   savingPriority.value = true
   try {
     const data = await projectsAPI.update(project.value.id, payload)
@@ -828,7 +915,7 @@ async function saveCostLevel() {
       costLevelMode.value !== modeToSave ||
       Number(priorityGwei.value) !== Number(priorityToSave) ||
       Number(autoQueuePosition.value) !== Number(positionToSave) ||
-      Number(autoMaxPriorityGwei.value) !== Number(maxToSave)
+      Number(autoMaxCreditsPerTask.value) !== Number(maxToSave)
     ) {
       schedulePrioritySave()
     }
@@ -1167,7 +1254,7 @@ onUnmounted(() => {
                   {{ autoQueuePosition }}%
                 </span>
                 <span class="text-base font-medium text-muted-foreground">
-                  / {{ formatGwei(autoMaxPriorityGwei) }}
+                  / {{ formatCredits(autoMaxCreditsPerTask) }}
                 </span>
               </template>
               <template v-else>
@@ -1188,8 +1275,14 @@ onUnmounted(() => {
             <p v-if="!isAutoMode">
               Lower cost levels spend fewer Credits but jobs may wait longer in
               the network queue. Higher cost levels spend more Credits and sit
-              higher in the queue. The bar under the slider shows the current
-              queue range.
+              higher in the queue. The bars under the slider show the Crynux and
+              Provider queue ranges.
+            </p>
+            <p v-else>
+              Within Max Credits per task, the system tries to reach the chosen
+              queue position. If the budget is too low for that position, the
+              task is placed lower in the queue. If Max Credits cannot cover the
+              Provider minimum fee, the request is rejected.
             </p>
           </div>
 
@@ -1206,9 +1299,9 @@ onUnmounted(() => {
             >
               <p class="text-sm font-semibold text-foreground">Auto</p>
               <p class="mt-1 text-xs leading-relaxed text-muted-foreground">
-                The system adjusts Cost Level to your chosen queue position.
-                Credits for the same task can change, but they never exceed your
-                set maximum.
+                The system adjusts Cost Level toward your chosen queue position
+                within Max Credits per task. Credits for the same task can
+                change, but they never exceed that maximum.
               </p>
             </button>
             <button
@@ -1231,31 +1324,30 @@ onUnmounted(() => {
 
           <div
             v-if="!isAutoMode"
-            class="mb-20 flex items-center gap-x-3"
+            class="mb-20 space-y-4"
           >
             <div
-              class="flex h-20 w-36 shrink-0 items-center justify-center rounded-lg border border-input bg-background focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-3"
+              class="grid w-full min-w-0 grid-cols-[9rem_auto_minmax(0,1fr)_auto] gap-x-2.5 pr-10 sm:pr-14"
             >
-              <Input
-                v-model="priorityInput"
-                inputmode="numeric"
-                autocomplete="off"
-                aria-label="Cost level"
-                class="h-auto w-full border-0 bg-transparent py-0 text-center font-mono text-2xl font-semibold leading-none text-primary tabular-nums shadow-none focus-visible:border-transparent focus-visible:ring-0 md:text-2xl"
-                @input="onPriorityInput"
-                @blur="onPriorityInputBlur"
-              />
-            </div>
-            <div class="flex min-w-0 flex-1 justify-center">
               <div
-                class="grid w-[80%] min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 gap-y-1.5"
+                class="flex h-20 w-full items-center justify-center self-center rounded-lg border border-input bg-background focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-3"
               >
+                <Input
+                  v-model="priorityInput"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  aria-label="Cost level"
+                  class="h-auto w-full border-0 bg-transparent py-0 text-center font-mono text-2xl font-semibold leading-none text-primary tabular-nums shadow-none focus-visible:border-transparent focus-visible:ring-0 md:text-2xl"
+                  @input="onPriorityInput"
+                  @blur="onPriorityInputBlur"
+                />
+              </div>
               <span
-                class="flex h-8 items-center text-xs text-muted-foreground"
+                class="flex h-8 items-center self-center text-xs text-muted-foreground"
               >
                 Cheaper
               </span>
-              <div class="flex h-8 items-center">
+              <div class="flex h-8 items-center self-center">
                 <Slider
                   v-model="sliderPercent"
                   :min="0"
@@ -1265,57 +1357,65 @@ onUnmounted(() => {
                 />
               </div>
               <span
-                class="flex h-8 items-center text-xs text-muted-foreground"
+                class="flex h-8 items-center self-center text-xs text-muted-foreground"
               >
                 Faster
               </span>
-              <div
-                v-if="showQueueRangeBar"
-                class="relative col-start-2 w-full"
-                aria-hidden="true"
+            </div>
+
+            <div
+              class="rounded-xl border border-border bg-muted/20 py-4 sm:py-5"
+            >
+              <p
+                class="mb-5 px-4 text-sm font-semibold text-foreground sm:px-5"
               >
-                <div class="relative h-4">
-                  <div
-                    class="absolute inset-x-0 top-1.5 h-1.5 overflow-hidden rounded-full bg-red-500"
-                  >
-                    <div
-                      v-if="!queueRangeBar.outOfRange"
-                      class="absolute inset-y-0 bg-blue-500"
-                      :style="{
-                        left: `${queueRangeBar.blueLeft}%`,
-                        width: `${Math.max(queueRangeBar.blueWidth, 0.5)}%`,
-                      }"
-                    />
-                  </div>
-                  <div
-                    class="absolute top-0 h-4 w-0 -translate-x-1/2"
-                    :style="{ left: `${queueRangeBar.minPercent}%` }"
-                  >
-                    <div class="mx-auto h-4 w-0.5 bg-foreground/80" />
-                  </div>
-                  <div
-                    class="absolute top-0 h-4 w-0 -translate-x-1/2"
-                    :style="{ left: `${queueRangeBar.maxPercent}%` }"
-                  >
-                    <div class="mx-auto h-4 w-0.5 bg-foreground/80" />
-                  </div>
-                </div>
-                <div class="relative mt-0.5 h-2.5">
-                  <span
-                    class="absolute top-0 -translate-x-1/2 whitespace-nowrap text-[10px] leading-none text-muted-foreground"
-                    :style="{ left: `${queueRangeBar.minPercent}%` }"
-                  >
-                    Current queue min
-                  </span>
-                  <span
-                    class="absolute top-0 -translate-x-1/2 whitespace-nowrap text-[10px] leading-none text-muted-foreground"
-                    :style="{ left: `${queueRangeBar.maxPercent}%` }"
-                  >
-                    Current queue max
-                  </span>
-                </div>
+                Task queue
+              </p>
+              <div
+                class="grid w-full min-w-0 grid-cols-[9rem_auto_minmax(0,1fr)_auto] gap-x-2.5 gap-y-5 pr-10 sm:pr-14"
+              >
+                <span
+                  class="col-span-2 flex h-3 items-center self-start whitespace-nowrap pl-4 text-xs text-muted-foreground sm:pl-5"
+                  :class="crynuxQueueRangeBar ? 'mt-[1.375rem]' : null"
+                >
+                  Open source models
+                </span>
+                <CostLevelRangeBar
+                  :bar="crynuxQueueRangeBar"
+                  min-label="Current queue min"
+                  max-label="Current queue max"
+                  empty-label="Queue empty"
+                />
+                <span />
+                <span
+                  class="col-span-2 flex h-3 items-center self-start whitespace-nowrap pl-4 text-xs text-muted-foreground sm:pl-5"
+                  :class="providerQueueRangeBar ? 'mt-[1.375rem]' : null"
+                >
+                  Provider models
+                </span>
+                <CostLevelRangeBar
+                  :bar="providerQueueRangeBar"
+                  min-label="Provider queue min"
+                  max-label="Provider queue max"
+                  empty-label="Queue empty"
+                  :marker-percent="providerMinMarkerPercent"
+                  :marker-label="
+                    providerMinMarkerPercent != null ? 'Provider min' : ''
+                  "
+                  :title="
+                    providerMinMarkerPercent != null
+                      ? `Provider min Cost Level ${formatGwei(providerMinPriorityGwei)}`
+                      : undefined
+                  "
+                />
+                <span />
               </div>
-              </div>
+              <p
+                class="mt-5 px-4 text-xs leading-relaxed sm:px-5"
+                :class="providerAvailabilityClass"
+              >
+                {{ providerAvailabilityHint }}
+              </p>
             </div>
           </div>
 
@@ -1363,9 +1463,25 @@ onUnmounted(() => {
                       />
                     </div>
                     <div class="relative w-full" aria-hidden="true">
-                      <div class="relative h-4">
+                      <div class="relative mb-3 h-2.5">
+                        <span
+                          class="absolute top-0 -translate-x-full whitespace-nowrap pr-1 text-[10px] leading-none text-muted-foreground"
+                          :style="{ left: `${AUTO_QUEUE_POSITION_BAR_MARGIN}%` }"
+                        >
+                          Queue min
+                        </span>
+                        <span
+                          class="absolute top-0 whitespace-nowrap pl-1 text-[10px] leading-none text-muted-foreground"
+                          :style="{
+                            left: `${100 - AUTO_QUEUE_POSITION_BAR_MARGIN}%`,
+                          }"
+                        >
+                          Queue max
+                        </span>
+                      </div>
+                      <div class="relative h-3">
                         <div
-                          class="absolute inset-x-0 top-1.5 h-1.5 overflow-hidden rounded-full bg-red-500"
+                          class="absolute inset-x-0 top-0 h-3 overflow-hidden rounded-full bg-red-500"
                         >
                           <div
                             class="absolute inset-y-0 bg-blue-500"
@@ -1376,35 +1492,19 @@ onUnmounted(() => {
                           />
                         </div>
                         <div
-                          class="absolute top-0 h-4 w-0 -translate-x-1/2"
+                          class="absolute bottom-full h-2 w-0 -translate-x-1/2"
                           :style="{ left: `${AUTO_QUEUE_POSITION_BAR_MARGIN}%` }"
                         >
-                          <div class="mx-auto h-4 w-0.5 bg-foreground/80" />
+                          <div class="mx-auto h-full w-0.5 bg-foreground/80" />
                         </div>
                         <div
-                          class="absolute top-0 h-4 w-0 -translate-x-1/2"
+                          class="absolute bottom-full h-2 w-0 -translate-x-1/2"
                           :style="{
                             left: `${100 - AUTO_QUEUE_POSITION_BAR_MARGIN}%`,
                           }"
                         >
-                          <div class="mx-auto h-4 w-0.5 bg-foreground/80" />
+                          <div class="mx-auto h-full w-0.5 bg-foreground/80" />
                         </div>
-                      </div>
-                      <div class="relative mt-0.5 h-2.5">
-                        <span
-                          class="absolute top-0 -translate-x-1/2 whitespace-nowrap text-[10px] leading-none text-muted-foreground"
-                          :style="{ left: `${AUTO_QUEUE_POSITION_BAR_MARGIN}%` }"
-                        >
-                          Queue min
-                        </span>
-                        <span
-                          class="absolute top-0 -translate-x-1/2 whitespace-nowrap text-[10px] leading-none text-muted-foreground"
-                          :style="{
-                            left: `${100 - AUTO_QUEUE_POSITION_BAR_MARGIN}%`,
-                          }"
-                        >
-                          Queue max
-                        </span>
                       </div>
                     </div>
                   </div>
@@ -1415,11 +1515,14 @@ onUnmounted(() => {
             <div class="rounded-xl border border-border bg-muted/20 p-4 sm:p-5">
               <div class="mb-4">
                 <p class="text-sm font-semibold text-foreground">
-                  Max Cost Level
+                  Max Credits per task
                 </p>
                 <p class="mt-1 text-xs text-muted-foreground">
-                  Upper cap for Auto. Credits for each request never exceed this
-                  Cost Level.
+                  Upper Credits cap for each Auto request. The system stays
+                  within this budget while trying to reach the chosen queue
+                  position. Requests are rejected when Max Credits cannot cover
+                  the Provider minimum of
+                  {{ formatCredits(providerMinCredits || 0) }} Credits.
                 </p>
               </div>
               <div class="flex items-center gap-x-3">
@@ -1427,27 +1530,27 @@ onUnmounted(() => {
                   class="flex h-20 w-36 shrink-0 items-center justify-center rounded-lg border border-input bg-background focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-3"
                 >
                   <Input
-                    v-model="autoMaxInput"
+                    v-model="autoMaxCreditsInput"
                     inputmode="numeric"
                     autocomplete="off"
-                    aria-label="Max cost level"
+                    aria-label="Max Credits per task"
                     class="h-auto w-full border-0 bg-transparent py-0 text-center font-mono text-2xl font-semibold leading-none text-primary tabular-nums shadow-none focus-visible:border-transparent focus-visible:ring-0 md:text-2xl"
-                    @input="onAutoMaxInput"
-                    @blur="onAutoMaxInputBlur"
+                    @input="onAutoMaxCreditsInput"
+                    @blur="onAutoMaxCreditsInputBlur"
                   />
                 </div>
                 <div class="flex min-w-0 flex-1 justify-center">
                   <div
-                    class="grid w-[80%] min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 gap-y-1.5"
+                    class="grid w-[80%] min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 gap-y-4"
                   >
                     <span
                       class="flex h-8 items-center text-xs text-muted-foreground"
                     >
-                      Cheaper
+                      Lower
                     </span>
                     <div class="flex h-8 items-center">
                       <Slider
-                        v-model="autoMaxSliderPercent"
+                        v-model="autoMaxCreditsSlider"
                         :min="0"
                         :max="SLIDER_MAX"
                         :step="1"
@@ -1457,57 +1560,36 @@ onUnmounted(() => {
                     <span
                       class="flex h-8 items-center text-xs text-muted-foreground"
                     >
-                      Faster
+                      Higher
                     </span>
-                    <div
-                      v-if="showQueueRangeBar"
-                      class="relative col-start-2 w-full"
-                      aria-hidden="true"
-                    >
-                      <div class="relative h-4">
-                        <div
-                          class="absolute inset-x-0 top-1.5 h-1.5 overflow-hidden rounded-full bg-red-500"
-                        >
-                          <div
-                            v-if="!queueRangeBar.outOfRange"
-                            class="absolute inset-y-0 bg-blue-500"
-                            :style="{
-                              left: `${queueRangeBar.blueLeft}%`,
-                              width: `${Math.max(queueRangeBar.blueWidth, 0.5)}%`,
-                            }"
-                          />
-                        </div>
-                        <div
-                          class="absolute top-0 h-4 w-0 -translate-x-1/2"
-                          :style="{ left: `${queueRangeBar.minPercent}%` }"
-                        >
-                          <div class="mx-auto h-4 w-0.5 bg-foreground/80" />
-                        </div>
-                        <div
-                          class="absolute top-0 h-4 w-0 -translate-x-1/2"
-                          :style="{ left: `${queueRangeBar.maxPercent}%` }"
-                        >
-                          <div class="mx-auto h-4 w-0.5 bg-foreground/80" />
-                        </div>
-                      </div>
-                      <div class="relative mt-0.5 h-2.5">
-                        <span
-                          class="absolute top-0 -translate-x-1/2 whitespace-nowrap text-[10px] leading-none text-muted-foreground"
-                          :style="{ left: `${queueRangeBar.minPercent}%` }"
-                        >
-                          Current queue min
-                        </span>
-                        <span
-                          class="absolute top-0 -translate-x-1/2 whitespace-nowrap text-[10px] leading-none text-muted-foreground"
-                          :style="{ left: `${queueRangeBar.maxPercent}%` }"
-                        >
-                          Current queue max
-                        </span>
-                      </div>
-                    </div>
+                    <span />
+                    <CostLevelRangeBar
+                      :bar="null"
+                      min-label="Min"
+                      max-label="Max"
+                      empty-label=""
+                      :marker-percent="providerMinCreditsMarkerPercent"
+                      :marker-label="
+                        providerMinCreditsMarkerPercent != null
+                          ? 'Provider min'
+                          : ''
+                      "
+                      :title="
+                        providerMinCreditsMarkerPercent != null
+                          ? `Provider min ${formatCredits(providerMinCredits)} Credits`
+                          : undefined
+                      "
+                    />
+                    <span />
                   </div>
                 </div>
               </div>
+              <p
+                class="mt-5 text-xs leading-relaxed"
+                :class="providerAvailabilityClass"
+              >
+                {{ providerAvailabilityHint }}
+              </p>
             </div>
           </div>
 
@@ -1533,9 +1615,9 @@ onUnmounted(() => {
                     </p>
                     <p class="mt-0.5 text-xs text-muted-foreground">
                       <template v-if="isAutoMode">
-                        Estimated at the configured max Cost Level. Actual charges
-                        may be lower when the live queue position resolves below the
-                        max.
+                        Estimates at the current Crynux queue high when available,
+                        otherwise the median. Actual Auto Cost Level is resolved
+                        per request within Max Credits.
                       </template>
                       <template v-else>
                         Estimates only. Actual charges may differ.
@@ -1641,9 +1723,10 @@ onUnmounted(() => {
                     </p>
                     <p class="mt-0.5 text-xs text-muted-foreground">
                       <template v-if="isAutoMode">
-                        Estimated for {{ imageExampleWorkloadNote }} at the
-                        configured max Cost Level. Actual charges may be lower
-                        when the live queue position resolves below the max.
+                        Estimates for {{ imageExampleWorkloadNote }} at the
+                        current Crynux queue high when available, otherwise the
+                        median. Actual Auto Cost Level is resolved per request
+                        within Max Credits.
                       </template>
                       <template v-else>
                         Estimates for {{ imageExampleWorkloadNote }}. Actual

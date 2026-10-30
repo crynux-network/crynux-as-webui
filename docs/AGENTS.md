@@ -6,17 +6,17 @@ Before making any changes, consult [`./architecture.md`](./architecture.md) for 
 
 When editing the project Cost Level panel in `src/views/ProjectDetailView.vue`, static-mode control layout MUST follow `project-management.md` section **Static Cost Level control layout**. After the change, verify:
 
-1. Queue range bar width matches the slider track left and right edges.
-2. Left numeric box stays left-aligned and tall (`h-20`) with primary flex-centered digits; right slider is about 80% of the remaining row width and horizontally centered in that space, with a tighter range-bar height.
+1. Top row is Cost Level input beside the slider; Task queue panel below spans full card content width; queue bar left/right edges align with the slider track via the shared column grid.
+2. Left numeric box stays tall (`h-20`) with primary flex-centered digits and sits directly left of the slider as one control.
 3. Larger gaps: intro text to mode cards (`mb-10`), mode cards to control row (`mb-20`), control row to example tables (`mb-20`).
 
 ### Cost Level auto layout
 
 When editing auto-mode controls in `src/views/ProjectDetailView.vue`, layout MUST follow `project-management.md` section **Auto Cost Level control layout**. After the change, verify:
 
-1. Queue position and Max Cost Level are two bordered groups with clear titles and larger spacing between groups.
-2. Each group has a tall left input and an 80%-width centered dual-bar block.
-3. Queue position slider is limited to `[1, 99]` with a fixed symmetric red–blue–red bar; Max Cost Level reuses the live Current queue range bar.
+1. Queue position and Max Credits per task are two bordered groups with clear titles and larger spacing between groups.
+2. Queue position has a tall left input and an 80%-width centered dual-bar block; Max Credits has a tall left input and an 80%-width centered log Credits slider plus Provider min bar.
+3. Queue position slider is limited to `[1, 99]` with a fixed symmetric red–blue–red bar; Max Credits uses a log axis packed from the current value and `provider_min_credits`.
 
 ## Documentation Index
 

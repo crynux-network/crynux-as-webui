@@ -262,13 +262,22 @@ export function parsePriorityBounds(minPriorityGwei, maxPriorityGwei) {
   return { min, max }
 }
 
+function positiveNumber(value) {
+  const n = Number(value)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
 /**
- * Visible log slider axis: pack queue and user with margin, then clamp to hard bounds.
+ * Visible log slider axis: pack queue, provider hints, and user with margin,
+ * then clamp to hard bounds.
  */
 export function computePriorityAxis({
   userPriorityGwei,
   lowestPriorityGwei,
   highestPriorityGwei,
+  providerLowestPriorityGwei,
+  providerHighestPriorityGwei,
+  providerMinPriorityGwei,
   medianPriorityGwei,
   minPriorityGwei,
   maxPriorityGwei,
@@ -278,22 +287,23 @@ export function computePriorityAxis({
     maxPriorityGwei,
   )
   const user = Math.max(1, Number(userPriorityGwei) || hardMin)
-  const low = Number(lowestPriorityGwei)
-  const high = Number(highestPriorityGwei)
-  const median = Number(medianPriorityGwei)
-
-  let axisMin
-  let axisMax
-  if (low > 0 && high > 0) {
-    axisMin = Math.min(low, user) / 2
-    axisMax = Math.max(high, user) * 2
-  } else if (median > 0) {
-    axisMin = Math.min(median, user) / 2
-    axisMax = Math.max(median, user) * 2
-  } else {
-    axisMin = user / 2
-    axisMax = user * 2
+  const points = [user]
+  for (const value of [
+    lowestPriorityGwei,
+    highestPriorityGwei,
+    providerLowestPriorityGwei,
+    providerHighestPriorityGwei,
+    providerMinPriorityGwei,
+    medianPriorityGwei,
+  ]) {
+    const n = positiveNumber(value)
+    if (n != null) points.push(n)
   }
+
+  const low = Math.min(...points)
+  const high = Math.max(...points)
+  let axisMin = low / 2
+  let axisMax = high * 2
 
   axisMin = Math.max(hardMin, axisMin)
   axisMax = Math.min(hardMax, Math.max(axisMax, axisMin))
@@ -301,6 +311,82 @@ export function computePriorityAxis({
     axisMax = Math.min(hardMax, axisMin * 2)
   }
   return { axisMin, axisMax, hardMin, hardMax }
+}
+
+/**
+ * Visible log slider axis for Auto Max Credits: pack the current value and
+ * Provider minimum Credits with margin, then clamp to hard bounds.
+ */
+export function computeCreditsAxis({
+  userCredits,
+  providerMinCredits,
+  hardMin = 1,
+  hardMax = 10_000,
+}) {
+  const minBound = Number(hardMin) > 0 ? Number(hardMin) : 1
+  const maxBound =
+    Number(hardMax) > minBound ? Number(hardMax) : 10_000
+  const user = Math.max(minBound, Number(userCredits) || minBound)
+  const points = [user]
+  const providerMin = positiveNumber(providerMinCredits)
+  if (providerMin != null) points.push(providerMin)
+
+  const low = Math.min(...points)
+  const high = Math.max(...points)
+  let axisMin = low / 2
+  let axisMax = high * 2
+
+  axisMin = Math.max(minBound, axisMin)
+  axisMax = Math.min(maxBound, Math.max(axisMax, axisMin))
+  if (axisMax <= axisMin) {
+    axisMax = Math.min(maxBound, axisMin * 2)
+  }
+  return { axisMin, axisMax, hardMin: minBound, hardMax: maxBound }
+}
+
+/** Map a live queue low/high pair onto the current log axis. */
+export function mapQueueRangeBar({
+  lowestPriorityGwei,
+  highestPriorityGwei,
+  axisMin,
+  axisMax,
+}) {
+  const low = Number(lowestPriorityGwei)
+  const high = Number(highestPriorityGwei)
+  if (!(low > 0) || !(high > 0)) return null
+
+  const outOfRange =
+    (low < axisMin && high < axisMin) || (low > axisMax && high > axisMax)
+  const minPercent = priorityToLogPercent(low, axisMin, axisMax)
+  const maxPercent = priorityToLogPercent(high, axisMin, axisMax)
+  const left = Math.min(minPercent, maxPercent)
+  const right = Math.max(minPercent, maxPercent)
+  return {
+    outOfRange,
+    minPercent,
+    maxPercent,
+    blueLeft: left,
+    blueWidth: right - left,
+  }
+}
+
+export function isProviderAvailableForCostLevel({
+  mode,
+  priorityGwei,
+  autoMaxCreditsPerTask,
+  providerMinPriorityGwei,
+  providerMinCredits,
+}) {
+  if (String(mode || 'static') === 'auto') {
+    const maxCredits = Number(autoMaxCreditsPerTask)
+    const minCredits = Number(providerMinCredits)
+    if (!(maxCredits > 0) || !(minCredits > 0)) return false
+    return maxCredits >= minCredits
+  }
+  const priority = Number(priorityGwei)
+  const minPriority = Number(providerMinPriorityGwei)
+  if (!(priority > 0) || !(minPriority > 0)) return false
+  return priority >= minPriority
 }
 
 export function priorityToLogPercent(priorityGwei, axisMin, axisMax) {
@@ -373,15 +459,23 @@ export function formatGwei(value) {
   }).format(n)
 }
 
-export function defaultAutoMaxPriorityGwei({
-  highestPriorityGwei,
-  minPriorityGwei,
-}) {
-  const high = Number(highestPriorityGwei)
-  if (Number.isFinite(high) && high > 0) return Math.round(high)
-  const min = Number(minPriorityGwei)
-  if (Number.isFinite(min) && min > 0) return Math.round(min)
-  return 1
+export function defaultAutoMaxCreditsPerTask(defaultFromConfig) {
+  const n = Number(defaultFromConfig)
+  if (Number.isFinite(n) && n > 0) return Math.trunc(n)
+  return 100
+}
+
+export function parseCreditsInput(raw) {
+  return parsePriorityInput(raw)
+}
+
+export function clampCredits(value, fallback = 100) {
+  const n = Math.round(Number(value))
+  if (!Number.isFinite(n) || n <= 0) {
+    const fb = Math.round(Number(fallback))
+    return Number.isFinite(fb) && fb > 0 ? fb : 100
+  }
+  return n
 }
 
 export const AUTO_QUEUE_POSITION_MIN = 1
