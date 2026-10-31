@@ -51,6 +51,12 @@ async function loadQueueConfig() {
       medianPriorityGwei: data?.median_priority_gwei,
       highestPriorityGwei: data?.highest_priority_gwei ?? null,
       lowestPriorityGwei: data?.lowest_priority_gwei ?? null,
+      providerMinPriorityGwei: data?.provider_min_priority_gwei ?? null,
+      providerMinCreditsCheapest: data?.provider_min_credits_cheapest ?? null,
+      providerMinCreditsExpensive: data?.provider_min_credits_expensive ?? null,
+      providerHighestPriorityGwei: data?.provider_highest_priority_gwei ?? null,
+      providerLowestPriorityGwei: data?.provider_lowest_priority_gwei ?? null,
+      providerQueueHasJobs: Boolean(data?.provider_queue_has_jobs),
     }
   } catch (e) {
     console.error('Failed to load billing config for project list', e)

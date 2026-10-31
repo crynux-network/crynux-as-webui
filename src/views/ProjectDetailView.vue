@@ -57,15 +57,15 @@ import {
   buildExampleRows,
   buildImageExampleRows,
   clampCredits,
-  clampPriorityGwei,
   computeCreditsAxis,
   computePriorityAxis,
   defaultAutoMaxCreditsPerTask,
   formatCredits,
   formatExampleCredits,
-  formatGwei,
+  formatKgwei,
   formatSeconds,
   formatTokenCount,
+  gweiToDisplayKgwei,
   isProviderAvailableForCostLevel,
   logPercentToPriority,
   mapQueueRangeBar,
@@ -75,8 +75,10 @@ import {
   AUTO_QUEUE_POSITION_MAX,
   AUTO_QUEUE_POSITION_BAR_MARGIN,
   parseCreditsInput,
-  parsePriorityInput,
+  parseKgweiInput,
+  PRIORITY_GWEI_PER_KGWEI,
   priorityToLogPercent,
+  quantizePriorityGweiToKgwei,
 } from '@/lib/llm-billing'
 import {
   copyText,
@@ -95,8 +97,8 @@ const loading = ref(false)
 const savingPriority = ref(false)
 const costLevelMode = ref('static')
 const savedCostLevelMode = ref('static')
-const priorityGwei = ref(1)
-const savedPriorityGwei = ref(1)
+const priorityGwei = ref(PRIORITY_GWEI_PER_KGWEI)
+const savedPriorityGwei = ref(PRIORITY_GWEI_PER_KGWEI)
 const priorityInput = ref('1')
 const sliderPercent = ref([0])
 const autoQueuePosition = ref(50)
@@ -109,7 +111,7 @@ const autoMaxCreditsInput = ref('100')
 const autoMaxCreditsSlider = ref([0])
 const defaultAutoMaxCredits = ref(100)
 const CREDITS_HARD_MAX = 10_000
-const minPriorityGwei = ref(1)
+const minPriorityGwei = ref(PRIORITY_GWEI_PER_KGWEI)
 const maxPriorityGwei = ref(1_000_000_000)
 const medianPriorityGwei = ref(null)
 const baseVram = ref(8)
@@ -451,7 +453,7 @@ const providerMinCostLevelMarkers = computed(() => {
     {
       percent: priorityToLogPercent(min, axisMin, axisMax),
       label: 'Provider min',
-      title: `Shared Provider min Cost Level ${formatGwei(min)} for ${providerMinReferenceLabel.value}. At this Cost Level that workload needs about ${cheapest} Credits for the cheapest models and ${expensive} Credits for the most expensive models.`,
+      title: `Shared Provider min Cost Level ${formatKgwei(min)} for ${providerMinReferenceLabel.value}. At this Cost Level that workload needs about ${cheapest} Credits for the cheapest models and ${expensive} Credits for the most expensive models.`,
     },
   ]
 })
@@ -527,7 +529,7 @@ watch(
     if (syncingPriority || !project.value || isAutoMode.value) return
     const percent = Number(raw) / SLIDER_SCALE
     const { axisMin, axisMax } = priorityAxis.value
-    const next = clampPriorityGwei(
+    const next = quantizePriorityGweiToKgwei(
       logPercentToPriority(percent, axisMin, axisMax),
       minPriorityGwei.value,
       maxPriorityGwei.value,
@@ -598,7 +600,7 @@ function sliderUnitsFromPriority(value) {
 }
 
 function applyPriorityLocal(value, { syncInput = true, remapSlider = true } = {}) {
-  const next = clampPriorityGwei(
+  const next = quantizePriorityGweiToKgwei(
     value,
     minPriorityGwei.value,
     maxPriorityGwei.value,
@@ -606,7 +608,8 @@ function applyPriorityLocal(value, { syncInput = true, remapSlider = true } = {}
   syncingPriority = true
   priorityGwei.value = next
   if (syncInput) {
-    priorityInput.value = String(next)
+    const kgwei = gweiToDisplayKgwei(next)
+    priorityInput.value = String(kgwei == null ? 1 : kgwei)
   }
   if (remapSlider) {
     sliderPercent.value = [sliderUnitsFromPriority(next)]
@@ -844,7 +847,7 @@ function applyProject(data) {
     Number(medianPriorityGwei.value) > 0
       ? Number(medianPriorityGwei.value)
       : minPriorityGwei.value
-  const next = clampPriorityGwei(
+  const next = quantizePriorityGweiToKgwei(
     Number.isFinite(raw) && raw > 0 ? raw : fallback,
     minPriorityGwei.value,
     maxPriorityGwei.value,
@@ -896,16 +899,17 @@ function onSelectUrl(event) {
 }
 
 function onPriorityInput() {
-  const parsed = parsePriorityInput(priorityInput.value)
+  const parsed = parseKgweiInput(priorityInput.value)
   if (parsed == null) return
   applyPriorityLocal(parsed, { syncInput: false, remapSlider: true })
   schedulePrioritySave()
 }
 
 function onPriorityInputBlur() {
-  const parsed = parsePriorityInput(priorityInput.value)
+  const parsed = parseKgweiInput(priorityInput.value)
   if (parsed == null) {
-    priorityInput.value = String(priorityGwei.value)
+    const kgwei = gweiToDisplayKgwei(priorityGwei.value)
+    priorityInput.value = String(kgwei == null ? 1 : kgwei)
     return
   }
   applyPriorityLocal(parsed)
@@ -1315,30 +1319,44 @@ onUnmounted(() => {
           </span>
           <span
             v-if="!costLevelOpen"
-            class="flex min-w-0 items-center gap-2.5"
+            class="flex min-w-0 items-center gap-3"
           >
             <span
               class="inline-flex shrink-0 items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground"
             >
               {{ isAutoMode ? 'Auto' : 'Static' }}
             </span>
-            <span class="flex min-w-0 items-baseline gap-x-1.5 font-mono tabular-nums">
-              <template v-if="isAutoMode">
-                <span class="text-2xl font-semibold text-sky-600 dark:text-sky-400">
-                  {{ autoQueuePosition }}%
+            <span class="flex min-w-0 items-end gap-3 text-right">
+              <span class="min-w-0">
+                <span
+                  class="block font-mono text-xl font-semibold leading-none tabular-nums"
+                  :class="
+                    isAutoMode
+                      ? 'text-sky-600 dark:text-sky-400'
+                      : 'text-primary'
+                  "
+                >
+                  <template v-if="isAutoMode">{{ autoQueuePosition }}%</template>
+                  <template v-else>{{ formatKgwei(priorityGwei) }}</template>
                 </span>
-                <span class="text-base font-medium text-muted-foreground">
-                  / {{ formatCredits(autoMaxCreditsPerTask) }}
+                <span class="mt-1 block text-[11px] leading-none text-muted-foreground">
+                  {{ isAutoMode ? 'Queue position' : 'Cost Level' }}
                 </span>
-              </template>
-              <template v-else>
-                <span class="text-2xl font-semibold text-primary">
-                  {{ formatGwei(priorityGwei) }}
+              </span>
+              <span
+                class="mb-0.5 h-6 w-px shrink-0 bg-border"
+                aria-hidden="true"
+              />
+              <span class="min-w-0">
+                <span
+                  class="block font-mono text-xl font-semibold leading-none tabular-nums text-foreground/70"
+                >
+                  {{ formatCredits(autoMaxCreditsPerTask) }}
                 </span>
-                <span class="text-base font-medium text-muted-foreground">
-                  / {{ formatCredits(autoMaxCreditsPerTask) }}
+                <span class="mt-1 block text-[11px] leading-none text-muted-foreground">
+                  Max Credits
                 </span>
-              </template>
+              </span>
             </span>
           </span>
         </button>

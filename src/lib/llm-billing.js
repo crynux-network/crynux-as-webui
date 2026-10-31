@@ -252,14 +252,50 @@ export function buildExampleRows({
   })
 }
 
-/** Inclusive hard bounds for Cost Level priority. */
+/** One Static Cost Level kgwei unit in Gwei. */
+export const PRIORITY_GWEI_PER_KGWEI = 1000
+
+/** Inclusive hard bounds for Static Cost Level priority in Gwei. */
 export function parsePriorityBounds(minPriorityGwei, maxPriorityGwei) {
   const min = Number(minPriorityGwei)
   const max = Number(maxPriorityGwei)
   if (!(min > 0) || !(max > 0) || min > max) {
-    return { min: 1, max: 1_000_000_000 }
+    return { min: PRIORITY_GWEI_PER_KGWEI, max: 1_000_000_000 }
   }
   return { min, max }
+}
+
+/** Round a Gwei Cost Level to the nearest integer kgwei for display. */
+export function gweiToDisplayKgwei(priorityGwei) {
+  const n = Number(priorityGwei)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return Math.round(n / PRIORITY_GWEI_PER_KGWEI)
+}
+
+/** Convert a positive integer kgwei input to Gwei. */
+export function kgweiToGwei(kgwei) {
+  const n = Math.trunc(Number(kgwei))
+  if (!Number.isFinite(n) || n <= 0) return null
+  return n * PRIORITY_GWEI_PER_KGWEI
+}
+
+/** Quantize a Gwei value to the nearest integer kgwei within hard bounds. */
+export function quantizePriorityGweiToKgwei(
+  value,
+  minPriorityGwei,
+  maxPriorityGwei,
+) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) {
+    return clampPriorityGwei(
+      PRIORITY_GWEI_PER_KGWEI,
+      minPriorityGwei,
+      maxPriorityGwei,
+    )
+  }
+  const quantized =
+    Math.round(n / PRIORITY_GWEI_PER_KGWEI) * PRIORITY_GWEI_PER_KGWEI
+  return clampPriorityGwei(quantized, minPriorityGwei, maxPriorityGwei)
 }
 
 function positiveNumber(value) {
@@ -286,7 +322,7 @@ export function computePriorityAxis({
     minPriorityGwei,
     maxPriorityGwei,
   )
-  const user = Math.max(1, Number(userPriorityGwei) || hardMin)
+  const user = Math.max(hardMin, Number(userPriorityGwei) || hardMin)
   const points = [user]
   for (const value of [
     lowestPriorityGwei,
@@ -424,7 +460,9 @@ export function priorityToLogPercent(priorityGwei, axisMin, axisMax) {
 export function logPercentToPriority(percent, axisMin, axisMax) {
   const min = Number(axisMin)
   const max = Number(axisMax)
-  if (!(min > 0) || !(max > min)) return Math.round(min) || 1
+  if (!(min > 0) || !(max > min)) {
+    return Math.max(PRIORITY_GWEI_PER_KGWEI, Math.round(min) || PRIORITY_GWEI_PER_KGWEI)
+  }
   const t = Math.min(100, Math.max(0, Number(percent))) / 100
   const logMin = Math.log(min)
   const logMax = Math.log(max)
@@ -445,6 +483,13 @@ export function parsePriorityInput(raw) {
   const n = Number(cleaned)
   if (!Number.isFinite(n) || n <= 0) return null
   return Math.trunc(n)
+}
+
+/** Parse a positive integer kgwei input and return Gwei, or null. */
+export function parseKgweiInput(raw) {
+  const kgwei = parsePriorityInput(raw)
+  if (kgwei == null) return null
+  return kgweiToGwei(kgwei)
 }
 
 export function formatCredits(credits) {
@@ -478,6 +523,15 @@ export function formatGwei(value) {
   return new Intl.NumberFormat('en-US', {
     maximumFractionDigits: 0,
   }).format(n)
+}
+
+/** Format a Gwei Cost Level as an integer kgwei display string. */
+export function formatKgwei(value) {
+  const kgwei = gweiToDisplayKgwei(value)
+  if (kgwei == null) return '—'
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 0,
+  }).format(kgwei)
 }
 
 export function defaultAutoMaxCreditsPerTask(defaultFromConfig) {
@@ -608,4 +662,179 @@ function queueStatusColor(rangeStatus, label) {
   if (rangeStatus === 'too_high') return QUEUE_STATUS_COLORS.too_high
   if (label && QUEUE_STATUS_COLORS[label]) return QUEUE_STATUS_COLORS[label]
   return QUEUE_STATUS_COLORS.Balanced
+}
+
+const QUEUE_IN_RANGE_PHRASES = {
+  Slowest: 'near the minimum',
+  Slower: 'below the middle',
+  Balanced: 'near the middle',
+  Faster: 'above the middle',
+  Fastest: 'near the maximum',
+}
+
+function hasLiveQueueBounds(lowestPriorityGwei, highestPriorityGwei) {
+  const low = Number(lowestPriorityGwei)
+  const high = Number(highestPriorityGwei)
+  return low > 0 && high > 0 && high >= low
+}
+
+/** One project-list hint line with independent color styling. */
+export function buildQueueHintLine(prefix, position, { empty = false } = {}) {
+  if (empty || !position) {
+    return {
+      text: `${prefix}: empty.`,
+      color: null,
+      muted: true,
+      tone: 'muted',
+    }
+  }
+  if (position.rangeStatus === 'too_low') {
+    return {
+      text: `${prefix}: below the current range.`,
+      color: position.color,
+      muted: false,
+      tone: 'queue',
+    }
+  }
+  if (position.rangeStatus === 'too_high') {
+    return {
+      text: `${prefix}: above the current range.`,
+      color: position.color,
+      muted: false,
+      tone: 'queue',
+    }
+  }
+  const phrase = QUEUE_IN_RANGE_PHRASES[position.label] || 'in range'
+  return {
+    text: `${prefix}: ${phrase}.`,
+    color: position.color,
+    muted: false,
+    tone: 'queue',
+  }
+}
+
+function providerAvailabilityHintLine(coverage) {
+  if (coverage === 'all') {
+    return {
+      text: 'Provider models are available.',
+      color: null,
+      muted: false,
+      tone: 'ok',
+    }
+  }
+  if (coverage === 'cheapest') {
+    return {
+      text: 'Cheapest Provider models are available. More expensive Provider models are unavailable because Max Credits is too low.',
+      color: null,
+      muted: false,
+      tone: 'warn',
+    }
+  }
+  return {
+    text: 'Provider models are unavailable because Max Credits is too low.',
+    color: null,
+    muted: false,
+    tone: 'warn',
+  }
+}
+
+/**
+ * Project list Cost Level description lines for Auto and Static modes.
+ * Each line carries its own color tone for independent styling.
+ */
+export function buildProjectListCostLevelHints({
+  mode,
+  priorityGwei,
+  autoMaxCreditsPerTask,
+  lowestPriorityGwei,
+  highestPriorityGwei,
+  medianPriorityGwei,
+  providerLowestPriorityGwei,
+  providerHighestPriorityGwei,
+  providerQueueHasJobs,
+  providerMinPriorityGwei,
+  providerMinCreditsCheapest,
+  providerMinCreditsExpensive,
+}) {
+  const lines = []
+  const creditsCoverage = providerMaxCreditsCoverage({
+    autoMaxCreditsPerTask,
+    providerMinCreditsCheapest,
+    providerMinCreditsExpensive,
+  })
+
+  if (String(mode || 'static') === 'auto') {
+    lines.push(providerAvailabilityHintLine(creditsCoverage))
+    return { lines, openSourcePosition: null }
+  }
+
+  const openSourceLive = hasLiveQueueBounds(
+    lowestPriorityGwei,
+    highestPriorityGwei,
+  )
+  const openSourcePosition = openSourceLive
+    ? getProjectQueuePosition({
+        priorityGwei,
+        lowestPriorityGwei,
+        highestPriorityGwei,
+        medianPriorityGwei,
+      })
+    : null
+
+  lines.push(buildQueueHintLine('Open source queue', openSourcePosition))
+
+  const costLevelOk = isProviderAvailableForCostLevel({
+    mode: 'static',
+    priorityGwei,
+    providerMinPriorityGwei,
+  })
+  const providerEnabled = costLevelOk && creditsCoverage !== 'none'
+
+  if (!costLevelOk) {
+    lines.push({
+      text: 'Provider models are unavailable because Cost Level is too low.',
+      color: null,
+      muted: false,
+      tone: 'warn',
+    })
+    return { lines, openSourcePosition }
+  }
+
+  if (!providerEnabled) {
+    lines.push({
+      text: 'Provider models are unavailable because Max Credits is too low.',
+      color: null,
+      muted: false,
+      tone: 'warn',
+    })
+    return { lines, openSourcePosition }
+  }
+
+  const providerLive =
+    Boolean(providerQueueHasJobs) &&
+    hasLiveQueueBounds(providerLowestPriorityGwei, providerHighestPriorityGwei)
+  lines.push(
+    buildQueueHintLine(
+      'Provider queue',
+      providerLive
+        ? getProjectQueuePosition({
+            priorityGwei,
+            lowestPriorityGwei: providerLowestPriorityGwei,
+            highestPriorityGwei: providerHighestPriorityGwei,
+          })
+        : null,
+      { empty: !providerLive },
+    ),
+  )
+
+  if (creditsCoverage === 'cheapest') {
+    lines.push({
+      text: 'Some expensive Provider models are unavailable because Max Credits is too low.',
+      color: null,
+      muted: false,
+      tone: 'warn',
+    })
+  }
+
+  return { lines, openSourcePosition }
 }

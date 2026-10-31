@@ -389,7 +389,7 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `lib/credits-ui.js` | Credits formatting, purchase estimate, transfer helpers |
 | `lib/project-url.js` | Build private LLM base URL from `endpoint_token` |
 | `lib/token-ratio.js` | Legacy homepage-only helper; not used by project Cost Level |
-| `lib/llm-billing.js` | Cost Level Gwei helpers, Credits/execution-time example math, and Max Credits / Provider min reference-axis packing |
+| `lib/llm-billing.js` | Cost Level Gwei helpers, plain integer display/input conversion (`1` displayed Cost Level = `1000` Gwei), Credits/execution-time example math, and Max Credits / Provider min reference-axis packing |
 | `api/v1/llm.js` | `billing_config` and `pricing_examples` clients; `billing_config` includes Provider min reference hints for `10` input / `50` output |
 | `api/v1/earn.js` | Shared API Key, earnings, and withdrawal clients |
 | `stores/wallet.js` | Wallet address sync and disconnect |

@@ -12,7 +12,7 @@ import UsageWorkloadCell from '@/components/stats/UsageWorkloadCell.vue'
 import { accountAPI } from '@/api/v1/account'
 import { purchaseAPI } from '@/api/v1/purchase'
 import { referralAPI } from '@/api/v1/referral'
-import { formatCredits, formatGwei } from '@/lib/llm-billing'
+import { formatCredits, formatKgwei } from '@/lib/llm-billing'
 import {
   PAGE_SIZE,
   creditsErrorMessage,
@@ -652,7 +652,7 @@ onMounted(() => {
                 </td>
                 <td class="px-4 py-2.5 tabular-nums">
                   <template v-if="Number(charge.priority_gwei) > 0">
-                    {{ formatGwei(charge.priority_gwei) }}
+                    {{ formatKgwei(charge.priority_gwei) }}
                   </template>
                   <template v-else>—</template>
                 </td>

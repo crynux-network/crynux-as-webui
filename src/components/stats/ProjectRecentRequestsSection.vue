@@ -14,7 +14,7 @@ import {
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { projectsAPI } from '@/api/v1/projects'
-import { formatGwei } from '@/lib/llm-billing'
+import { formatKgwei } from '@/lib/llm-billing'
 import { formatCreditsValue, formatRecordTime } from '@/lib/credits-ui'
 import { projectErrorMessage } from '@/lib/project-ui'
 import { requestStatusSecondaryLine } from '@/lib/playground-status-log'
@@ -213,7 +213,7 @@ watch(() => props.projectId, loadRequests)
             </td>
             <td class="px-4 py-2.5 tabular-nums">
               <template v-if="Number(request.priority_gwei) > 0">
-                {{ formatGwei(request.priority_gwei) }}
+                {{ formatKgwei(request.priority_gwei) }}
               </template>
               <template v-else>—</template>
             </td>

@@ -8,9 +8,9 @@ import {
   formatExactNumber,
 } from '@/lib/usage-stats-ui'
 import {
+  buildProjectListCostLevelHints,
   formatCredits,
-  formatGwei,
-  getProjectQueuePosition,
+  formatKgwei,
   normalizeAutoQueuePosition,
 } from '@/lib/llm-billing'
 
@@ -59,12 +59,7 @@ const autoMaxDisplay = computed(() => {
   return formatCredits(n)
 })
 
-const costLevelDisplay = computed(() => {
-  if (isAutoMode.value) {
-    return `${autoQueuePosition.value}%`
-  }
-  return formatGwei(props.project.priority_gwei)
-})
+const costLevelDisplay = computed(() => formatKgwei(props.project.priority_gwei))
 
 const lastRequestLabel = computed(() => {
   if (props.project.last_request_at == null) return 'No requests yet'
@@ -76,13 +71,23 @@ const lastRequestExact = computed(() => {
   return new Date(Number(props.project.last_request_at) * 1000).toLocaleString()
 })
 
-const queuePosition = computed(() => {
-  if (isAutoMode.value || !props.queueConfig) return null
-  return getProjectQueuePosition({
+const costLevelHints = computed(() => {
+  if (!props.queueConfig) {
+    return { lines: [], openSourcePosition: null }
+  }
+  return buildProjectListCostLevelHints({
+    mode: props.project.cost_level_mode,
     priorityGwei: props.project.priority_gwei,
+    autoMaxCreditsPerTask: props.project.auto_max_credits_per_task,
     lowestPriorityGwei: props.queueConfig.lowestPriorityGwei,
     highestPriorityGwei: props.queueConfig.highestPriorityGwei,
     medianPriorityGwei: props.queueConfig.medianPriorityGwei,
+    providerLowestPriorityGwei: props.queueConfig.providerLowestPriorityGwei,
+    providerHighestPriorityGwei: props.queueConfig.providerHighestPriorityGwei,
+    providerQueueHasJobs: props.queueConfig.providerQueueHasJobs,
+    providerMinPriorityGwei: props.queueConfig.providerMinPriorityGwei,
+    providerMinCreditsCheapest: props.queueConfig.providerMinCreditsCheapest,
+    providerMinCreditsExpensive: props.queueConfig.providerMinCreditsExpensive,
   })
 })
 
@@ -94,63 +99,44 @@ const modeTagClass = computed(() =>
     : 'border border-border bg-muted/50 text-foreground',
 )
 
-const queueRangeStatusText = computed(() => {
-  if (isAutoMode.value) return null
-  const pos = queuePosition.value
-  if (!pos) return null
-  if (pos.rangeStatus === 'too_low') return 'Too low'
-  if (pos.rangeStatus === 'too_high') return 'Too high'
-  return 'In range'
+const primaryValueStyle = computed(() => {
+  if (isAutoMode.value) return undefined
+  const color = costLevelHints.value.openSourcePosition?.color
+  return color ? { color } : undefined
 })
 
-const queueRangeStatusClass = computed(() => {
-  const status = queuePosition.value?.rangeStatus
-  if (status === 'too_low' || status === 'too_high') {
-    return 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
-  }
-  return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-})
-
-const costLevelDescription = computed(() => {
-  if (isAutoMode.value) {
-    const pos = autoQueuePosition.value
-    const max = autoMaxDisplay.value
-    if (max === '—') {
-      return `Queue position ${pos}% from min to max. Set Max Credits per task to use Auto.`
-    }
-    return `Queue position ${pos}% from min to max. Max Credits per task ${max}.`
-  }
-  const position = queuePosition.value
-  if (!position) return null
-  if (position.rangeStatus === 'too_low') {
-    return 'Below the current queue range. Requests may wait much longer.'
-  }
-  if (position.rangeStatus === 'too_high') {
-    return 'Above the current queue range. You may be spending more than needed.'
-  }
-  const descriptions = {
-    Slowest: 'Near the queue minimum. Lower cost, with a longer expected wait.',
-    Slower: 'Below the middle of the queue. Lower cost, with a longer expected wait.',
-    Balanced: 'Near the middle of the queue for a balance of cost and wait time.',
-    Faster: 'Above the middle of the queue. Higher cost, with a shorter expected wait.',
-    Fastest: 'Near the queue maximum. Highest cost, with the shortest expected wait.',
-  }
-  return descriptions[position.label] || null
+const primaryValueClass = computed(() => {
+  if (isAutoMode.value) return 'text-sky-600 dark:text-sky-400'
+  if (costLevelHints.value.openSourcePosition?.color) return undefined
+  return 'text-muted-foreground'
 })
 
 const costLevelTitle = computed(() => {
   if (isAutoMode.value) {
-    const max = autoMaxDisplay.value
-    return max === '—'
-      ? `Auto · ${autoQueuePosition.value}%`
-      : `Auto · ${autoQueuePosition.value}% / ${max}`
+    return `Auto · Queue position ${autoQueuePosition.value}% · Max Credits ${autoMaxDisplay.value}`
   }
-  const gwei = costLevelDisplay.value
-  const status = queueRangeStatusText.value
-  if (!status) return `Cost level ${gwei}`
-  const position = queuePosition.value?.label
-  return `Cost level ${gwei} · ${status}${position ? ` · ${position}` : ''}`
+  return `Static · Cost Level ${costLevelDisplay.value} · Max Credits ${autoMaxDisplay.value}`
 })
+
+function hintLineClass(line) {
+  if (line?.tone === 'ok') {
+    return 'text-emerald-700 dark:text-emerald-400'
+  }
+  if (line?.tone === 'warn') {
+    return 'text-amber-700 dark:text-amber-400'
+  }
+  if (line?.muted || !line?.color) {
+    return 'text-muted-foreground'
+  }
+  return undefined
+}
+
+function hintLineStyle(line) {
+  if (line?.color && !line?.muted && line?.tone === 'queue') {
+    return { color: line.color }
+  }
+  return undefined
+}
 
 function formatRelativeTime(unixSeconds) {
   const then = Number(unixSeconds) * 1000
@@ -255,67 +241,58 @@ function formatRelativeTime(unixSeconds) {
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">
             Cost level
           </p>
-          <div class="flex shrink-0 items-center gap-1.5">
-            <span
-              class="rounded-full px-2 py-0.5 text-[11px] font-medium"
-              :class="modeTagClass"
+          <span
+            class="rounded-full px-2 py-0.5 text-[11px] font-medium"
+            :class="modeTagClass"
+          >
+            {{ modeTagText }}
+          </span>
+        </div>
+
+        <div class="mt-4 flex items-end gap-5">
+          <div class="min-w-0">
+            <p
+              class="text-3xl font-semibold tabular-nums tracking-tight"
+              :class="primaryValueClass"
+              :style="primaryValueStyle"
             >
-              {{ modeTagText }}
-            </span>
-            <span
-              v-if="queueRangeStatusText"
-              class="rounded-full px-2 py-0.5 text-[11px] font-medium"
-              :class="queueRangeStatusClass"
+              <template v-if="isAutoMode">{{ autoQueuePosition }}%</template>
+              <template v-else>{{ costLevelDisplay }}</template>
+            </p>
+            <p class="mt-1 text-xs text-muted-foreground">
+              {{ isAutoMode ? 'Queue position' : 'Cost Level' }}
+            </p>
+          </div>
+          <div
+            class="mb-1 h-8 w-px shrink-0 bg-border"
+            aria-hidden="true"
+          />
+          <div class="min-w-0">
+            <p
+              class="text-3xl font-semibold tabular-nums tracking-tight text-foreground/70"
             >
-              {{ queueRangeStatusText }}
-            </span>
+              {{ autoMaxDisplay }}
+            </p>
+            <p class="mt-1 text-xs text-muted-foreground">
+              Max Credits
+            </p>
           </div>
         </div>
 
-        <div class="mt-4 flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+        <div
+          v-if="costLevelHints.lines.length > 0"
+          class="mt-3 space-y-1"
+        >
           <p
-            class="text-4xl font-semibold tabular-nums tracking-tight"
-            :style="!isAutoMode && queuePosition ? { color: queuePosition.color } : undefined"
-            :class="
-              isAutoMode
-                ? 'text-sky-600 dark:text-sky-400'
-                : !isAutoMode && queuePosition
-                  ? undefined
-                  : 'text-muted-foreground'
-            "
+            v-for="(line, index) in costLevelHints.lines"
+            :key="`${index}-${line.text}`"
+            class="text-xs leading-relaxed"
+            :class="hintLineClass(line)"
+            :style="hintLineStyle(line)"
           >
-            {{ costLevelDisplay }}
-          </p>
-          <p
-            v-if="isAutoMode"
-            class="text-lg font-medium tabular-nums tracking-tight text-muted-foreground"
-          >
-            / {{ autoMaxDisplay }}
+            {{ line.text }}
           </p>
         </div>
-
-        <template v-if="isAutoMode">
-          <p
-            v-if="costLevelDescription"
-            class="mt-3 text-xs leading-relaxed text-muted-foreground"
-          >
-            {{ costLevelDescription }}
-          </p>
-        </template>
-        <template v-else>
-          <p
-            v-if="queuePosition?.label"
-            class="mt-3 text-sm font-medium text-foreground"
-          >
-            {{ queuePosition.label }}
-          </p>
-          <p
-            v-if="costLevelDescription"
-            class="mt-1 text-xs leading-relaxed text-muted-foreground"
-          >
-            {{ costLevelDescription }}
-          </p>
-        </template>
       </div>
     </div>
   </button>
