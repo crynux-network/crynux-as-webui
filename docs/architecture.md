@@ -389,8 +389,8 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `lib/credits-ui.js` | Credits formatting, purchase estimate, transfer helpers |
 | `lib/project-url.js` | Build private LLM base URL from `endpoint_token` |
 | `lib/token-ratio.js` | Legacy homepage-only helper; not used by project Cost Level |
-| `lib/llm-billing.js` | Cost Level Gwei helpers and Credits/execution-time example math |
-| `api/v1/llm.js` | `billing_config` and `pricing_examples` clients |
+| `lib/llm-billing.js` | Cost Level Gwei helpers, Credits/execution-time example math, and Max Credits / Provider min reference-axis packing |
+| `api/v1/llm.js` | `billing_config` and `pricing_examples` clients; `billing_config` includes Provider min reference hints for `10` input / `50` output |
 | `api/v1/earn.js` | Shared API Key, earnings, and withdrawal clients |
 | `stores/wallet.js` | Wallet address sync and disconnect |
 | `stores/auth.js` | JWT session and `authenticate()` |
@@ -419,7 +419,7 @@ Further account APIs MUST follow the same `V1Client` + module class pattern.
 | `views/ProjectListView.vue` | Project list and create flow |
 | `components/projects/ProjectListItem.vue` | Project list card; Failed day count uses red when `elevated_recent_failure_rate` is true, otherwise muted gray |
 | `components/stats/AccountUsageStats.vue` | Account usage summary cards (Requests, Input tokens, Output tokens, Images, Credits used, Success rate) and Requests/Credits charts from `GET /v1/account/stats` |
-| `views/ProjectDetailView.vue` | Project detail, Cost Level, Playground, Usage charts, Recent Requests, reset key, delete |
+| `views/ProjectDetailView.vue` | Project detail, Cost Level (including Provider min reference markers), Playground, Usage charts, Recent Requests, reset key, delete |
 | `components/projects/ProjectPlaygroundSection.vue` | Collapsible Playground shell with Chat and Image tabs |
 | `components/projects/playground/*` | Chat and Image generation Playground panels |
 | `components/stats/ProjectUsageSection.vue` | Project usage charts and Top Models table; Tokens & Images chart uses dual Y-axes |

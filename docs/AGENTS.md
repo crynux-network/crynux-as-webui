@@ -17,7 +17,8 @@ When editing auto-mode controls in `src/views/ProjectDetailView.vue`, layout MUS
 
 1. Queue position and Max Credits per task are two bordered groups with clear titles and larger spacing between groups.
 2. Queue position has a tall left input and an 80%-width centered dual-bar block; Max Credits has a tall left input and an 80%-width centered log Credits slider plus Provider min bar.
-3. Queue position slider is limited to `[1, 99]` with a fixed symmetric red–blue–red bar; Max Credits uses a log axis packed from the current value and `provider_min_credits`.
+3. Queue position slider is limited to `[1, 99]` with a fixed symmetric red–blue–red bar; Max Credits uses a log axis packed from the current value, `provider_min_credits_cheapest`, and `provider_min_credits_expensive`.
+4. Cost Level Task queue keeps under-label `Provider min`. Max Credits markers use `Provider min - cheapest` and `Provider min - expensive`. Treat these plus `provider_min_priority_gwei` as reference hints for `10` / `50`, and MUST say actual admission depends on model and request size.
 
 ## Documentation Index
 

@@ -315,11 +315,12 @@ export function computePriorityAxis({
 
 /**
  * Visible log slider axis for Auto Max Credits: pack the current value and
- * Provider minimum Credits with margin, then clamp to hard bounds.
+ * Provider minimum Credits markers with margin, then clamp to hard bounds.
  */
 export function computeCreditsAxis({
   userCredits,
-  providerMinCredits,
+  providerMinCreditsCheapest,
+  providerMinCreditsExpensive,
   hardMin = 1,
   hardMax = 10_000,
 }) {
@@ -328,8 +329,13 @@ export function computeCreditsAxis({
     Number(hardMax) > minBound ? Number(hardMax) : 10_000
   const user = Math.max(minBound, Number(userCredits) || minBound)
   const points = [user]
-  const providerMin = positiveNumber(providerMinCredits)
-  if (providerMin != null) points.push(providerMin)
+  for (const value of [
+    providerMinCreditsCheapest,
+    providerMinCreditsExpensive,
+  ]) {
+    const point = positiveNumber(value)
+    if (point != null) points.push(point)
+  }
 
   const low = Math.min(...points)
   const high = Math.max(...points)
@@ -375,18 +381,33 @@ export function isProviderAvailableForCostLevel({
   priorityGwei,
   autoMaxCreditsPerTask,
   providerMinPriorityGwei,
-  providerMinCredits,
+  providerMinCreditsExpensive,
 }) {
   if (String(mode || 'static') === 'auto') {
     const maxCredits = Number(autoMaxCreditsPerTask)
-    const minCredits = Number(providerMinCredits)
-    if (!(maxCredits > 0) || !(minCredits > 0)) return false
-    return maxCredits >= minCredits
+    const expensive = Number(providerMinCreditsExpensive)
+    if (!(maxCredits > 0) || !(expensive > 0)) return false
+    return maxCredits >= expensive
   }
   const priority = Number(priorityGwei)
   const minPriority = Number(providerMinPriorityGwei)
   if (!(priority > 0) || !(minPriority > 0)) return false
   return priority >= minPriority
+}
+
+/** Max Credits coverage for the reference Provider min workload. */
+export function providerMaxCreditsCoverage({
+  autoMaxCreditsPerTask,
+  providerMinCreditsCheapest,
+  providerMinCreditsExpensive,
+}) {
+  const maxCredits = Number(autoMaxCreditsPerTask)
+  const cheapest = Number(providerMinCreditsCheapest)
+  const expensive = Number(providerMinCreditsExpensive)
+  if (!(maxCredits > 0)) return 'none'
+  if (expensive > 0 && maxCredits >= expensive) return 'all'
+  if (cheapest > 0 && maxCredits >= cheapest) return 'cheapest'
+  return 'none'
 }
 
 export function priorityToLogPercent(priorityGwei, axisMin, axisMax) {

@@ -69,6 +69,7 @@ import {
   isProviderAvailableForCostLevel,
   logPercentToPriority,
   mapQueueRangeBar,
+  providerMaxCreditsCoverage,
   normalizeAutoQueuePosition,
   AUTO_QUEUE_POSITION_MIN,
   AUTO_QUEUE_POSITION_MAX,
@@ -116,7 +117,10 @@ const creditsPerGwei = ref(1)
 const highestPriorityGwei = ref(null)
 const lowestPriorityGwei = ref(null)
 const providerMinPriorityGwei = ref(null)
-const providerMinCredits = ref(null)
+const providerMinCreditsCheapest = ref(null)
+const providerMinCreditsExpensive = ref(null)
+const providerMinReferenceInputTokens = ref(10)
+const providerMinReferenceOutputTokens = ref(50)
 const providerHighestPriorityGwei = ref(null)
 const providerLowestPriorityGwei = ref(null)
 const providerQueueHasJobs = ref(false)
@@ -400,27 +404,56 @@ const providerQueueRangeBar = computed(() => {
   })
 })
 
-const providerMinMarkerPercent = computed(() => {
-  const min = Number(providerMinPriorityGwei.value)
-  if (!(min > 0)) return null
-  const { axisMin, axisMax } = priorityAxis.value
-  return priorityToLogPercent(min, axisMin, axisMax)
-})
-
 const creditsAxis = computed(() =>
   computeCreditsAxis({
     userCredits: autoMaxCreditsPerTask.value,
-    providerMinCredits: providerMinCredits.value,
+    providerMinCreditsCheapest: providerMinCreditsCheapest.value,
+    providerMinCreditsExpensive: providerMinCreditsExpensive.value,
     hardMin: 1,
     hardMax: CREDITS_HARD_MAX,
   }),
 )
 
-const providerMinCreditsMarkerPercent = computed(() => {
-  const min = Number(providerMinCredits.value)
-  if (!(min > 0)) return null
+const providerMinCreditsMarkers = computed(() => {
   const { axisMin, axisMax } = creditsAxis.value
-  return priorityToLogPercent(min, axisMin, axisMax)
+  const markers = []
+  const cheapest = Number(providerMinCreditsCheapest.value)
+  const expensive = Number(providerMinCreditsExpensive.value)
+  if (cheapest > 0) {
+    markers.push({
+      percent: priorityToLogPercent(cheapest, axisMin, axisMax),
+      label: 'Provider min - cheapest',
+      title: `Cheapest Provider models need about ${formatCredits(cheapest)} Credits for the reference ${providerMinReferenceLabel.value} workload`,
+    })
+  }
+  if (expensive > 0 && expensive !== cheapest) {
+    markers.push({
+      percent: priorityToLogPercent(expensive, axisMin, axisMax),
+      label: 'Provider min - expensive',
+      title: `Most expensive Provider models need about ${formatCredits(expensive)} Credits for the reference ${providerMinReferenceLabel.value} workload`,
+    })
+  }
+  return markers
+})
+
+const providerMinReferenceLabel = computed(
+  () =>
+    `${formatTokenCount(providerMinReferenceInputTokens.value)} input / ${formatTokenCount(providerMinReferenceOutputTokens.value)} output`,
+)
+
+const providerMinCostLevelMarkers = computed(() => {
+  const min = Number(providerMinPriorityGwei.value)
+  if (!(min > 0)) return []
+  const { axisMin, axisMax } = priorityAxis.value
+  const cheapest = formatCredits(providerMinCreditsCheapest.value || 0)
+  const expensive = formatCredits(providerMinCreditsExpensive.value || 0)
+  return [
+    {
+      percent: priorityToLogPercent(min, axisMin, axisMax),
+      label: 'Provider min',
+      title: `Shared Provider min Cost Level ${formatGwei(min)} for ${providerMinReferenceLabel.value}. At this Cost Level that workload needs about ${cheapest} Credits for the cheapest models and ${expensive} Credits for the most expensive models.`,
+    },
+  ]
 })
 
 const staticProviderAvailable = computed(() =>
@@ -429,32 +462,37 @@ const staticProviderAvailable = computed(() =>
     priorityGwei: priorityGwei.value,
     autoMaxCreditsPerTask: autoMaxCreditsPerTask.value,
     providerMinPriorityGwei: providerMinPriorityGwei.value,
-    providerMinCredits: providerMinCredits.value,
+    providerMinCreditsExpensive: providerMinCreditsExpensive.value,
   }),
 )
 
-const maxCreditsProviderAvailable = computed(() =>
-  isProviderAvailableForCostLevel({
-    mode: 'auto',
-    priorityGwei: priorityGwei.value,
+const maxCreditsCoverage = computed(() =>
+  providerMaxCreditsCoverage({
     autoMaxCreditsPerTask: autoMaxCreditsPerTask.value,
-    providerMinPriorityGwei: providerMinPriorityGwei.value,
-    providerMinCredits: providerMinCredits.value,
+    providerMinCreditsCheapest: providerMinCreditsCheapest.value,
+    providerMinCreditsExpensive: providerMinCreditsExpensive.value,
   }),
 )
 
 const staticProviderAvailabilityHint = computed(() => {
+  const cheapest = formatCredits(providerMinCreditsCheapest.value || 0)
+  const expensive = formatCredits(providerMinCreditsExpensive.value || 0)
   if (staticProviderAvailable.value) {
-    return 'Provider models such as OpenAI, Google, and Anthropic are available at this Cost Level.'
+    return `Provider models such as OpenAI, Google, and Anthropic are available at this Cost Level for the reference ${providerMinReferenceLabel.value} workload. At this Cost Level that workload needs about ${cheapest} Credits for the cheapest models and ${expensive} Credits for the most expensive models. Larger real requests stay available at this Cost Level and cost more.`
   }
-  return 'Open source models are available. Requests to Provider models such as OpenAI, Google, and Anthropic will be rejected. Raise Cost Level to Provider min or higher.'
+  return `Open source models are available. Requests to Provider models such as OpenAI, Google, and Anthropic will be rejected for the reference ${providerMinReferenceLabel.value} workload. Raise Cost Level to Provider min or higher. At Provider min that workload needs about ${cheapest} Credits for the cheapest models and ${expensive} Credits for the most expensive models.`
 })
 
 const maxCreditsProviderAvailabilityHint = computed(() => {
-  if (maxCreditsProviderAvailable.value) {
-    return 'Provider models such as OpenAI, Google, and Anthropic are available at this Max Credits.'
+  const cheapest = formatCredits(providerMinCreditsCheapest.value || 0)
+  const expensive = formatCredits(providerMinCreditsExpensive.value || 0)
+  if (maxCreditsCoverage.value === 'all') {
+    return `All Provider models such as OpenAI, Google, and Anthropic are available at this Max Credits for the reference ${providerMinReferenceLabel.value} workload. That workload needs about ${cheapest} Credits for the cheapest models and ${expensive} Credits for the most expensive models. Larger real requests cost more and may still be rejected if they exceed Max Credits.`
   }
-  return 'Open source models are available. Requests to Provider models such as OpenAI, Google, and Anthropic will be rejected. Raise Max Credits to Provider min or higher.'
+  if (maxCreditsCoverage.value === 'cheapest') {
+    return `Cheapest Provider models are available at this Max Credits for the reference ${providerMinReferenceLabel.value} workload (about ${cheapest} Credits). More expensive Provider models still need about ${expensive} Credits for that reference workload. Raise Max Credits to Provider min - expensive or higher to cover them.`
+  }
+  return `Open source models are available. Requests to Provider models such as OpenAI, Google, and Anthropic will be rejected for the reference ${providerMinReferenceLabel.value} workload. Raise Max Credits to Provider min - cheapest (${cheapest} Credits) or higher; Provider min - expensive is about ${expensive} Credits.`
 })
 
 const staticProviderAvailabilityClass = computed(() =>
@@ -463,11 +501,15 @@ const staticProviderAvailabilityClass = computed(() =>
     : 'text-amber-700 dark:text-amber-400',
 )
 
-const maxCreditsProviderAvailabilityClass = computed(() =>
-  maxCreditsProviderAvailable.value
-    ? 'text-emerald-700 dark:text-emerald-400'
-    : 'text-amber-700 dark:text-amber-400',
-)
+const maxCreditsProviderAvailabilityClass = computed(() => {
+  if (maxCreditsCoverage.value === 'all') {
+    return 'text-emerald-700 dark:text-emerald-400'
+  }
+  if (maxCreditsCoverage.value === 'cheapest') {
+    return 'text-amber-700 dark:text-amber-400'
+  }
+  return 'text-amber-700 dark:text-amber-400'
+})
 
 watch(projectId, async () => {
   clearPrioritySaveTimer()
@@ -665,11 +707,26 @@ async function loadBillingConfig() {
       Number.isFinite(nextProviderMinPriority) && nextProviderMinPriority > 0
         ? String(data.provider_min_priority_gwei)
         : null
-    const nextProviderMinCredits = Number(data?.provider_min_credits)
-    providerMinCredits.value =
-      Number.isFinite(nextProviderMinCredits) && nextProviderMinCredits > 0
-        ? String(data.provider_min_credits)
+    const nextCheapestCredits = Number(data?.provider_min_credits_cheapest)
+    providerMinCreditsCheapest.value =
+      Number.isFinite(nextCheapestCredits) && nextCheapestCredits > 0
+        ? String(data.provider_min_credits_cheapest)
         : null
+    const nextExpensiveCredits = Number(data?.provider_min_credits_expensive)
+    providerMinCreditsExpensive.value =
+      Number.isFinite(nextExpensiveCredits) && nextExpensiveCredits > 0
+        ? String(data.provider_min_credits_expensive)
+        : null
+    const nextReferenceInput = Number(data?.provider_min_reference_input_tokens)
+    providerMinReferenceInputTokens.value =
+      Number.isFinite(nextReferenceInput) && nextReferenceInput > 0
+        ? Math.trunc(nextReferenceInput)
+        : 10
+    const nextReferenceOutput = Number(data?.provider_min_reference_output_tokens)
+    providerMinReferenceOutputTokens.value =
+      Number.isFinite(nextReferenceOutput) && nextReferenceOutput > 0
+        ? Math.trunc(nextReferenceOutput)
+        : 50
     providerQueueHasJobs.value = Boolean(data?.provider_queue_has_jobs)
     if (
       providerQueueHasJobs.value &&
@@ -1302,7 +1359,7 @@ onUnmounted(() => {
               Within Max Credits per task, the system tries to reach the chosen
               queue position. If the budget is too low for that position, the
               task is placed lower in the queue. If Max Credits cannot cover the
-              Provider minimum fee, the request is rejected.
+              shared Provider minimum for the request, the request is rejected.
             </p>
           </div>
 
@@ -1417,15 +1474,7 @@ onUnmounted(() => {
                       min-label="Provider queue min"
                       max-label="Provider queue max"
                       empty-label="Queue empty"
-                      :marker-percent="providerMinMarkerPercent"
-                      :marker-label="
-                        providerMinMarkerPercent != null ? 'Provider min' : ''
-                      "
-                      :title="
-                        providerMinMarkerPercent != null
-                          ? `Provider min Cost Level ${formatGwei(providerMinPriorityGwei)}`
-                          : undefined
-                      "
+                      :markers="providerMinCostLevelMarkers"
                     />
                     <span />
                   </div>
@@ -1543,16 +1592,25 @@ onUnmounted(() => {
                   <template v-if="isAutoMode">
                     Upper Credits cap for each Auto request. The system stays
                     within this budget while trying to reach the chosen queue
-                    position. Requests are rejected when Max Credits cannot
-                    cover the Provider minimum of
-                    {{ formatCredits(providerMinCredits || 0) }} Credits.
+                    position. For the reference
+                    {{ providerMinReferenceLabel }} workload, Provider min -
+                    cheapest is about
+                    {{ formatCredits(providerMinCreditsCheapest || 0) }} Credits
+                    and Provider min - expensive is about
+                    {{ formatCredits(providerMinCreditsExpensive || 0) }} Credits.
+                    Requests are rejected when Max Credits cannot cover the
+                    selected Provider model.
                   </template>
                   <template v-else>
                     Upper Credits cap for each request. Estimated Credits above
-                    this budget are rejected without changing Cost Level.
+                    this budget are rejected without changing Cost Level. For
+                    the reference {{ providerMinReferenceLabel }} workload,
+                    Provider min - cheapest is about
+                    {{ formatCredits(providerMinCreditsCheapest || 0) }} Credits
+                    and Provider min - expensive is about
+                    {{ formatCredits(providerMinCreditsExpensive || 0) }} Credits.
                     Requests are rejected when Max Credits cannot cover the
-                    Provider minimum of
-                    {{ formatCredits(providerMinCredits || 0) }} Credits.
+                    selected Provider model.
                   </template>
                 </p>
               </div>
@@ -1599,17 +1657,7 @@ onUnmounted(() => {
                       min-label="Min"
                       max-label="Max"
                       empty-label=""
-                      :marker-percent="providerMinCreditsMarkerPercent"
-                      :marker-label="
-                        providerMinCreditsMarkerPercent != null
-                          ? 'Provider min'
-                          : ''
-                      "
-                      :title="
-                        providerMinCreditsMarkerPercent != null
-                          ? `Provider min ${formatCredits(providerMinCredits)} Credits`
-                          : undefined
-                      "
+                      :markers="providerMinCreditsMarkers"
                     />
                     <span />
                   </div>
