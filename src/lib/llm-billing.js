@@ -529,6 +529,7 @@ export function formatGwei(value) {
 export function formatKgwei(value) {
   const kgwei = gweiToDisplayKgwei(value)
   if (kgwei == null) return '—'
+  if (kgwei < 1) return '<1'
   return new Intl.NumberFormat('en-US', {
     maximumFractionDigits: 0,
   }).format(kgwei)
