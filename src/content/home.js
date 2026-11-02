@@ -21,8 +21,8 @@ export const serviceTabs = [
         body: 'Integrate powerful LLMs with minimal effort using the familiar OpenAI library.',
       },
       {
-        title: 'Extensive Model Support',
-        body: 'Access all state-of-the-art LLM models from Huggingface.',
+        title: 'One API, All Models',
+        body: 'Call OpenAI, Anthropic, Google, and Hugging Face open-source models through the same OpenAI-compatible API.',
       },
       {
         title: 'Async Multi-Task Processing',
@@ -62,8 +62,8 @@ print(res)`,
         body: 'Create and edit images with the familiar OpenAI Images generations and edits APIs. Use the official OpenAI Python library with only a Crynux base URL and API key.',
       },
       {
-        title: 'Latest Image Models',
-        body: 'Run the newest open-source image models on Crynux, including Qwen/Qwen-Image-2.1, alongside the broader Hugging Face image model ecosystem.',
+        title: 'One API, All Models',
+        body: 'Call OpenAI, Google, and Hugging Face open-source image models through the same OpenAI-compatible API, including models such as Qwen/Qwen-Image-2.1.',
       },
       {
         title: 'Components and Quantization',
