@@ -81,7 +81,7 @@ class ProjectPrivateClient {
   }
 
   async listModels(endpointToken) {
-    const body = await this._request(endpointToken, 'get', '/models')
+    const body = await this._request(endpointToken, 'get', '/models/chat')
     return Array.isArray(body?.data) ? body.data : []
   }
 

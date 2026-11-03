@@ -333,7 +333,7 @@ optional router.push(redirect)   e.g. { name: 'projects' }
 | `earn.js` | `prepareWithdrawal` | `POST /earn/withdrawals/prepare` | Yes |
 | `earn.js` | `createWithdrawal` | `POST /earn/withdrawals` | Yes |
 | `earn.js` | `listWithdrawals` | `GET /earn/withdrawals` | Yes |
-| `project-private.js` | `listModels` | `GET /api/<endpoint_token>/v1/models` | JWT |
+| `project-private.js` | `listModels` | `GET /api/<endpoint_token>/v1/models/chat` | JWT |
 | `project-private.js` | `listImageModels` | `GET /api/<endpoint_token>/v1/models/image` | JWT |
 | `project-private.js` | `chatCompletions` | `POST /api/<endpoint_token>/v1/chat/completions` | JWT |
 | `project-private.js` | `createInferenceTask` | `POST /api/<endpoint_token>/v1/inference_tasks` | JWT |

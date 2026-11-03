@@ -38,6 +38,7 @@ import { projectsAPI } from '@/api/v1/projects'
 import {
   PROJECT_API_DOCS,
   projectChatCompletionsUrl,
+  projectChatModelsUrl,
   projectImageModelsUrl,
   projectImagesEditsUrl,
   projectImagesGenerationsUrl,
@@ -286,22 +287,28 @@ const apiGuideItems = computed(() => {
       label: 'Models',
       endpoints: [
         {
-          id: 'llm_models',
+          id: 'all_models',
           method: 'GET',
           url: token ? projectModelsUrl(token) : '',
-          purpose: 'List currently loaded LLM models.',
+          purpose: 'List all currently available chat and image models.',
           note: 'OpenAI-compatible endpoint.',
+        },
+        {
+          id: 'chat_models',
+          method: 'GET',
+          url: token ? projectChatModelsUrl(token) : '',
+          purpose: 'List currently available chat models.',
         },
         {
           id: 'image_models',
           method: 'GET',
           url: token ? projectImageModelsUrl(token) : '',
-          purpose: 'List currently loaded Image models.',
+          purpose: 'List currently available image models.',
         },
       ],
       docsUrl: PROJECT_API_DOCS.models,
       description:
-        'The LLM and Image catalogs are separate. Each endpoint returns only its corresponding model type.',
+        'GET /models returns every available model. GET /models/chat and GET /models/image return only the corresponding model type. Provider models appear only while the Service Provider has an available Shared API Key.',
     },
   ]
 })

@@ -57,6 +57,10 @@ export function projectModelsUrl(endpointToken) {
   return `${projectLlmBaseUrl(endpointToken)}/models`
 }
 
+export function projectChatModelsUrl(endpointToken) {
+  return `${projectModelsUrl(endpointToken)}/chat`
+}
+
 export function projectImageModelsUrl(endpointToken) {
   return `${projectModelsUrl(endpointToken)}/image`
 }
