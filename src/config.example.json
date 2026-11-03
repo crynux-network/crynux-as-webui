@@ -1,6 +1,7 @@
 {
   "as_url": "https://api.crynux-as.xyz",
   "discord_url": "https://discord.gg/Ug2AHUbrrm",
+  "turnstile_site_key": "0x4AAAAAAFxXxz0YkU10iFTy",
   "networks": [
     { "id": 1 },
     { "id": 8453 },

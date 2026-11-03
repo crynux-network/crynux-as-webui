@@ -40,8 +40,10 @@ function showConnectError(result) {
     )
   } else if (result.reason === 'connect_cancelled') {
     toast.error('Wallet connection was cancelled.')
+  } else if (result.reason === 'missing_turnstile') {
+    toast.error('Security check is required. Please try again later.')
   } else if (result.reason === 'auth_failed') {
-    toast.error('Authentication failed or was rejected.')
+    toast.error('Authentication failed. Please try again later.')
   } else if (result.reason === 'already_authenticating') {
     toast.error('Authentication is already in progress.')
   } else {
@@ -58,8 +60,9 @@ function openConnectDialog() {
   connectDialogOpen.value = true
 }
 
-async function onDialogConnect(inviteCode) {
-  pendingInviteCode.value = inviteCode
+async function onDialogConnect({ inviteCode, turnstileToken } = {}) {
+  pendingInviteCode.value = inviteCode || ''
+  const pendingTurnstileToken = turnstileToken || ''
   connectDialogOpen.value = false
   loading.value = true
   try {
@@ -76,7 +79,10 @@ async function onDialogConnect(inviteCode) {
 
     const result = await signIn(
       { name: 'projects' },
-      { inviteCode: pendingInviteCode.value },
+      {
+        inviteCode: pendingInviteCode.value,
+        turnstileToken: pendingTurnstileToken,
+      },
     )
     connectDialogOpen.value = false
     dialogStep.value = 'connect'

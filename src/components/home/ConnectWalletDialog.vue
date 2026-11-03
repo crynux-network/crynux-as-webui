@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   Dialog,
   DialogContent,
@@ -11,6 +11,8 @@ import { Loader2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import config from '@/config.json'
+import { loadTurnstile } from '@/lib/turnstile'
 import { readStoredInviteCode, storeInviteCode } from '@/lib/referral'
 
 const open = defineModel('open', { type: Boolean, default: false })
@@ -28,12 +30,111 @@ const props = defineProps({
 const emit = defineEmits(['connect'])
 
 const inviteCode = ref('')
+const turnstileToken = ref('')
+const turnstileReady = ref(false)
+const turnstileError = ref(false)
+const turnstileContainer = ref(null)
 
-watch(open, (isOpen) => {
-  if (!isOpen) return
-  if (props.step === 'connect') {
-    inviteCode.value = readStoredInviteCode()
+const siteKey = computed(() => String(config.turnstile_site_key || '').trim())
+const canConnect = computed(
+  () =>
+    !props.busy &&
+    props.step === 'connect' &&
+    turnstileReady.value &&
+    !!turnstileToken.value,
+)
+
+let widgetId = null
+
+async function mountTurnstile() {
+  turnstileToken.value = ''
+  turnstileReady.value = false
+  turnstileError.value = false
+
+  if (!siteKey.value) {
+    turnstileError.value = true
+    console.error('Missing turnstile_site_key in config.json')
+    return
   }
+
+  await nextTick()
+  if (!turnstileContainer.value) return
+
+  try {
+    const turnstile = await loadTurnstile()
+    if (widgetId != null) {
+      turnstile.remove(widgetId)
+      widgetId = null
+    }
+    turnstileContainer.value.innerHTML = ''
+    widgetId = turnstile.render(turnstileContainer.value, {
+      sitekey: siteKey.value,
+      callback: (token) => {
+        turnstileToken.value = token
+        turnstileReady.value = true
+        turnstileError.value = false
+      },
+      'expired-callback': () => {
+        turnstileToken.value = ''
+        turnstileReady.value = false
+      },
+      'error-callback': () => {
+        turnstileToken.value = ''
+        turnstileReady.value = false
+        turnstileError.value = true
+      },
+    })
+  } catch (e) {
+    console.error('Turnstile mount error:', e)
+    turnstileError.value = true
+  }
+}
+
+function resetTurnstile() {
+  turnstileToken.value = ''
+  turnstileReady.value = false
+  if (widgetId == null || typeof window === 'undefined' || !window.turnstile) {
+    return
+  }
+  try {
+    window.turnstile.reset(widgetId)
+  } catch (e) {
+    console.error('Turnstile reset error:', e)
+  }
+}
+
+function removeTurnstile() {
+  if (widgetId != null && typeof window !== 'undefined' && window.turnstile) {
+    try {
+      window.turnstile.remove(widgetId)
+    } catch (e) {
+      console.error('Turnstile remove error:', e)
+    }
+  }
+  widgetId = null
+  turnstileToken.value = ''
+  turnstileReady.value = false
+  if (turnstileContainer.value) {
+    turnstileContainer.value.innerHTML = ''
+  }
+}
+
+watch(
+  () => [open.value, props.step],
+  async ([isOpen, step]) => {
+    if (!isOpen) {
+      removeTurnstile()
+      return
+    }
+    if (step === 'connect') {
+      inviteCode.value = readStoredInviteCode()
+      await mountTurnstile()
+    }
+  },
+)
+
+onBeforeUnmount(() => {
+  removeTurnstile()
 })
 
 function preventDefault(event) {
@@ -47,9 +148,13 @@ function onEscapeKeyDown(event) {
 }
 
 function onConnect() {
-  if (props.busy || props.step !== 'connect') return
+  if (!canConnect.value) return
   storeInviteCode(inviteCode.value)
-  emit('connect', String(inviteCode.value || '').trim())
+  emit('connect', {
+    inviteCode: String(inviteCode.value || '').trim(),
+    turnstileToken: turnstileToken.value,
+  })
+  resetTurnstile()
 }
 </script>
 
@@ -103,21 +208,33 @@ function onConnect() {
         </p>
       </div>
 
-      <div v-if="step === 'connect'" class="grid gap-1.5">
-        <Label
-          for="invite-code"
-          class="text-xs font-normal text-muted-foreground"
-        >
-          Invite code (optional)
-        </Label>
-        <Input
-          id="invite-code"
-          v-model="inviteCode"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="Only if you have one"
-          class="h-9 border-border/60 bg-muted/20 text-sm text-muted-foreground placeholder:text-muted-foreground/70"
-        />
+      <div v-if="step === 'connect'" class="grid gap-4">
+        <div class="grid gap-1.5">
+          <Label
+            for="invite-code"
+            class="text-xs font-normal text-muted-foreground"
+          >
+            Invite code (optional)
+          </Label>
+          <Input
+            id="invite-code"
+            v-model="inviteCode"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Only if you have one"
+            class="h-9 border-border/60 bg-muted/20 text-sm text-muted-foreground placeholder:text-muted-foreground/70"
+          />
+        </div>
+
+        <div class="grid gap-1.5">
+          <div ref="turnstileContainer" class="min-h-[65px]" />
+          <p
+            v-if="turnstileError"
+            class="text-xs text-muted-foreground"
+          >
+            Security check failed to load. Please try again later.
+          </p>
+        </div>
       </div>
 
       <DialogFooter v-if="step === 'connect'" class="sm:justify-stretch">
@@ -125,7 +242,7 @@ function onConnect() {
           type="button"
           class="w-full sm:w-full"
           size="lg"
-          :disabled="busy"
+          :disabled="!canConnect"
           @click="onConnect"
         >
           Connect

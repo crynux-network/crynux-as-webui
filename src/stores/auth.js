@@ -39,7 +39,7 @@ export const useAuthStore = defineStore('auth', {
       this.sessionExpiresAt = 0
       this.sessionAddress = null
     },
-    async authenticate({ inviteCode } = {}) {
+    async authenticate({ inviteCode, turnstileToken } = {}) {
       if (this._isAuthenticating) {
         return { success: false, reason: 'already_authenticating' }
       }
@@ -48,6 +48,11 @@ export const useAuthStore = defineStore('auth', {
       const account = getConnection(wagmiConfig)
       if (!account.address) {
         return { success: false, reason: 'not_connected' }
+      }
+
+      const token = String(turnstileToken || '').trim()
+      if (!token) {
+        return { success: false, reason: 'missing_turnstile' }
       }
 
       this._isAuthenticating = true
@@ -61,7 +66,12 @@ export const useAuthStore = defineStore('auth', {
         const signature = await signMessage(wagmiConfig, { message })
 
         const code = String(inviteCode ?? readStoredInviteCode() ?? '').trim()
-        const payload = { address, signature, timestamp }
+        const payload = {
+          address,
+          signature,
+          timestamp,
+          turnstile_token: token,
+        }
         if (code) {
           payload.invite_code = code
         }

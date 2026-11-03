@@ -97,7 +97,7 @@ export function useWalletConnect() {
     }
   }
 
-  async function signIn(redirect = null, { inviteCode } = {}) {
+  async function signIn(redirect = null, { inviteCode, turnstileToken } = {}) {
     if (inviteCode != null) {
       storeInviteCode(inviteCode)
     }
@@ -110,7 +110,7 @@ export function useWalletConnect() {
 
       wallet.syncFromWagmi()
 
-      const result = await auth.authenticate({ inviteCode })
+      const result = await auth.authenticate({ inviteCode, turnstileToken })
       if (!result.success) {
         if (result.reason === 'auth_failed') {
           await wallet.disconnectWallet()
@@ -129,12 +129,15 @@ export function useWalletConnect() {
   }
 
   // Full connect + sign flow for callers that do not use the two-step dialog.
-  async function connect(redirect = null, { inviteCode } = {}) {
+  async function connect(
+    redirect = null,
+    { inviteCode, turnstileToken } = {},
+  ) {
     const connected = await ensureWalletConnected()
     if (!connected.success) {
       return connected
     }
-    return signIn(redirect, { inviteCode })
+    return signIn(redirect, { inviteCode, turnstileToken })
   }
 
   return { connect, ensureWalletConnected, signIn }
