@@ -33,6 +33,7 @@ const inviteCode = ref('')
 const turnstileToken = ref('')
 const turnstileReady = ref(false)
 const turnstileError = ref(false)
+const turnstileLoading = ref(false)
 const turnstileContainer = ref(null)
 
 const siteKey = computed(() => String(config.turnstile_site_key || '').trim())
@@ -45,13 +46,47 @@ const canConnect = computed(
 )
 
 let widgetId = null
+let appearanceObserver = null
+
+function stopWatchTurnstileAppearance() {
+  if (!appearanceObserver) return
+  appearanceObserver.disconnect()
+  appearanceObserver = null
+}
+
+function markTurnstileVisible() {
+  turnstileLoading.value = false
+  stopWatchTurnstileAppearance()
+}
+
+function watchTurnstileAppearance() {
+  stopWatchTurnstileAppearance()
+  const el = turnstileContainer.value
+  if (!el) return
+
+  const hasWidgetUi = () =>
+    !!el.querySelector('iframe, input[name="cf-turnstile-response"]')
+
+  if (hasWidgetUi()) {
+    markTurnstileVisible()
+    return
+  }
+
+  appearanceObserver = new MutationObserver(() => {
+    if (hasWidgetUi()) markTurnstileVisible()
+  })
+  appearanceObserver.observe(el, { childList: true, subtree: true })
+}
 
 async function mountTurnstile() {
   turnstileToken.value = ''
   turnstileReady.value = false
   turnstileError.value = false
+  turnstileLoading.value = true
+  stopWatchTurnstileAppearance()
 
   if (!siteKey.value) {
+    turnstileLoading.value = false
     turnstileError.value = true
     console.error('Missing turnstile_site_key in config.json')
     return
@@ -67,12 +102,14 @@ async function mountTurnstile() {
       widgetId = null
     }
     turnstileContainer.value.innerHTML = ''
+    watchTurnstileAppearance()
     widgetId = turnstile.render(turnstileContainer.value, {
       sitekey: siteKey.value,
       callback: (token) => {
         turnstileToken.value = token
         turnstileReady.value = true
         turnstileError.value = false
+        markTurnstileVisible()
       },
       'expired-callback': () => {
         turnstileToken.value = ''
@@ -82,11 +119,14 @@ async function mountTurnstile() {
         turnstileToken.value = ''
         turnstileReady.value = false
         turnstileError.value = true
+        markTurnstileVisible()
       },
     })
   } catch (e) {
     console.error('Turnstile mount error:', e)
     turnstileError.value = true
+    turnstileLoading.value = false
+    stopWatchTurnstileAppearance()
   }
 }
 
@@ -97,13 +137,17 @@ function resetTurnstile() {
     return
   }
   try {
+    turnstileLoading.value = true
+    watchTurnstileAppearance()
     window.turnstile.reset(widgetId)
   } catch (e) {
     console.error('Turnstile reset error:', e)
+    turnstileLoading.value = false
   }
 }
 
 function removeTurnstile() {
+  stopWatchTurnstileAppearance()
   if (widgetId != null && typeof window !== 'undefined' && window.turnstile) {
     try {
       window.turnstile.remove(widgetId)
@@ -114,6 +158,7 @@ function removeTurnstile() {
   widgetId = null
   turnstileToken.value = ''
   turnstileReady.value = false
+  turnstileLoading.value = false
   if (turnstileContainer.value) {
     turnstileContainer.value.innerHTML = ''
   }
@@ -227,7 +272,26 @@ function onConnect() {
         </div>
 
         <div class="grid gap-1.5">
-          <div ref="turnstileContainer" class="min-h-[65px]" />
+          <div class="relative min-h-[65px]">
+            <div
+              v-if="turnstileLoading && !turnstileError"
+              class="flex flex-col items-center justify-center gap-3 py-4"
+            >
+              <Loader2
+                class="size-12 animate-spin text-muted-foreground"
+                aria-hidden="true"
+              />
+              <p class="text-sm text-muted-foreground">Validating…</p>
+            </div>
+            <div
+              ref="turnstileContainer"
+              :class="
+                turnstileLoading && !turnstileError
+                  ? 'pointer-events-none absolute inset-0 overflow-hidden opacity-0'
+                  : ''
+              "
+            />
+          </div>
           <p
             v-if="turnstileError"
             class="text-xs text-muted-foreground"
