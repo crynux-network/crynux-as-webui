@@ -133,18 +133,21 @@ export function quantizationBitWidth(quantizationConfig) {
   return null
 }
 
-export function modelCacheHash(model) {
-  return typeof model?.model_cache_hash === 'string'
-    ? model.model_cache_hash.trim()
-    : ''
-}
-
 export function modelComponents(model) {
   return isPlainObject(model?.components) ? model.components : null
 }
 
 export function modelLora(model) {
   return model?.lora ?? null
+}
+
+function stableJsonKey(value) {
+  if (value == null) return 'null'
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return 'null'
+  }
 }
 
 function componentRepo(override) {
@@ -233,7 +236,6 @@ function modelSelectionFields(value) {
     on_disk_node_count: Number(value.on_disk_node_count) || 0,
     execution_dtype: modelExecutionDtype(value),
     quantization_config: modelQuantizationConfig(value),
-    model_cache_hash: modelCacheHash(value),
     components: modelComponents(value),
     lora: modelLora(value),
   }
@@ -241,21 +243,14 @@ function modelSelectionFields(value) {
 
 export function modelSelectionKey(model) {
   if (!model?.id) return ''
-  if (model.isCustom) {
-    return [
-      'custom',
-      String(model.id),
-      modelExecutionDtype(model),
-      stableQuantizationKey(modelQuantizationConfig(model)),
-    ].join('\0')
-  }
-  const hash = modelCacheHash(model)
-  if (hash) return ['catalog', hash].join('\0')
+  const prefix = model.isCustom ? 'custom' : 'catalog'
   return [
-    'catalog',
+    prefix,
     String(model.id),
     modelExecutionDtype(model),
     stableQuantizationKey(modelQuantizationConfig(model)),
+    stableJsonKey(modelComponents(model)),
+    stableJsonKey(modelLora(model)),
   ].join('\0')
 }
 
@@ -266,19 +261,12 @@ export function catalogToModelSelection(model) {
   }
 }
 
-export function normalizeSelectedModel(
-  value,
-  { requireCacheHash = false } = {},
-) {
+export function normalizeSelectedModel(value) {
   if (!isPlainObject(value) || typeof value.id !== 'string' || !value.id.trim()) {
     return null
   }
-  const selection = {
+  return {
     ...modelSelectionFields(value),
     isCustom: Boolean(value.isCustom),
   }
-  if (requireCacheHash && !selection.isCustom && !selection.model_cache_hash) {
-    return null
-  }
-  return selection
 }
