@@ -79,7 +79,7 @@ function normalizeImage(value) {
       selectedModel: null,
       prompt: '',
       negativePrompt: '',
-      steps: 4,
+      steps: 40,
       imageDataUrl: null,
       elapsedSeconds: 0,
       showElapsed: false,
@@ -101,7 +101,7 @@ function normalizeImage(value) {
     negativePrompt:
       typeof value.negativePrompt === 'string' ? value.negativePrompt : '',
     steps:
-      Number.isInteger(steps) && steps >= 1 && steps <= 50 ? steps : 4,
+      Number.isInteger(steps) && steps >= 1 && steps <= 50 ? steps : 40,
     imageDataUrl,
     elapsedSeconds:
       Number.isFinite(elapsedSeconds) && elapsedSeconds >= 0

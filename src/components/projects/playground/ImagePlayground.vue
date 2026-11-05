@@ -24,7 +24,7 @@ const MAX_POLL_MS = 11 * 60 * 1000
 const FALLBACK_ERROR = 'Image generation failed'
 const STEPS_MIN = 1
 const STEPS_MAX = 50
-const STEPS_DEFAULT = 4
+const STEPS_DEFAULT = 40
 const FIRST_DOWNLOAD_HINT =
   'This model is not yet available on network nodes. The first request may take much longer while nodes download it.'
 
